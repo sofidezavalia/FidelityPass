@@ -110,6 +110,7 @@ export const passes = pgTable(
       .references(() => customers.id, { onDelete: "cascade" }),
     serialNumber: text("serial_number").notNull().unique(), // lo genera PR de emisión
     googleWalletObjectId: text("google_wallet_object_id"), // lo completa PR-04
+    applePassId: text("apple_pass_id"), // lo completa PR-05
     estado: passEstadoEnum("estado").notNull().default("activa"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

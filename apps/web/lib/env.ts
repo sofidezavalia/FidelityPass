@@ -20,6 +20,10 @@ const envSchema = z.object({
   GOOGLE_WALLET_ISSUER_ID: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
+
+  // Apple Wallet (proveedor tercerizado en piloto) — Patrón "integración dormida"
+  PASSES_PROVIDER_API_KEY: z.string().optional(),
+  PASSES_PROVIDER_BASE_URL: z.string().url().optional(),
 });
 
 export const env = envSchema.parse(process.env);

@@ -3,6 +3,7 @@ import { customers, db, passes, stamps } from "@fidelitypass/db";
 import { and, count, eq, gte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedStaff } from "../../../lib/staff-auth";
+import { updateApplePassStamps } from "../../../lib/wallet/apple";
 
 /**
  * GET /api/sellos?serialNumber=...
@@ -115,6 +116,7 @@ export async function POST(request: NextRequest) {
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
+      applePassId: passes.applePassId,
       clienteNombre: customers.nombre,
     })
     .from(passes)
@@ -173,10 +175,19 @@ export async function POST(request: NextRequest) {
     .from(stamps)
     .where(eq(stamps.passId, row.id));
 
+  const sellosAcumulados = Number(totalResult?.total ?? 1);
+
+  // Hook integración PR-05 (Apple Wallet): actualiza sellos en el proveedor para push al iPhone
+  if (row.applePassId) {
+    updateApplePassStamps(row.applePassId, sellosAcumulados).catch((err) => {
+      console.error("Error al actualizar sellos en Apple Wallet:", err);
+    });
+  }
+
   const resultado = {
     ok: true as const,
     clienteNombre: row.clienteNombre,
-    sellosAcumulados: Number(totalResult?.total ?? 1),
+    sellosAcumulados,
   };
 
   const validated = selloResultadoSchema.parse(resultado);

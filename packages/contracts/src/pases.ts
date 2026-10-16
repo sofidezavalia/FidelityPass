@@ -9,5 +9,10 @@ export const paseEmitidoSchema = z.object({
   saveUrl: z.string().url(), // https://pay.google.com/gp/v/save/<jwt>
 });
 
+export const applePassResultSchema = z.object({
+  downloadUrl: z.string().url(), // URL del .pkpass para descargar en el iPhone
+});
+
 export type EmitirPaseInput = z.infer<typeof emitirPaseSchema>;
 export type PaseEmitidoOutput = z.infer<typeof paseEmitidoSchema>;
+export type ApplePassResultOutput = z.infer<typeof applePassResultSchema>;

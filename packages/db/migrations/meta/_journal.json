@@ -15,6 +15,13 @@
       "when": 1792159217020,
       "tag": "0001_goofy_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792161401541,
+      "tag": "0002_common_iceman",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@
 import { emitirPaseSchema } from "@fidelitypass/contracts";
 import { theme } from "@fidelitypass/ui";
 import { useSearchParams } from "next/navigation";
-import { type FormEvent, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 function NuevoPaseForm() {
   const searchParams = useSearchParams();
@@ -15,7 +15,9 @@ function NuevoPaseForm() {
 
   const [nombreCliente, setNombreCliente] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingWallet, setLoadingWallet] = useState<"google" | "apple" | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!merchantId) {
@@ -92,11 +94,10 @@ function NuevoPaseForm() {
     );
   }
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleEmitirPase = async (walletType: "google" | "apple") => {
     setError("");
 
-    // Validación con Zod en el cliente antes de llamar a la API
+    // Validación previa con Zod en el cliente antes de llamar a la API
     const validation = emitirPaseSchema.safeParse({
       merchantId,
       nombreCliente: nombreCliente.trim(),
@@ -109,10 +110,15 @@ function NuevoPaseForm() {
       return;
     }
 
-    setLoading(true);
+    setLoadingWallet(walletType);
 
     try {
-      const res = await fetch("/api/pases/emitir", {
+      const endpoint =
+        walletType === "google"
+          ? "/api/pases/emitir"
+          : "/api/pases/emitir-apple";
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(validation.data),
@@ -120,19 +126,31 @@ function NuevoPaseForm() {
 
       const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || "No se pudo emitir la tarjeta.");
-        setLoading(false);
+      if (res.status === 503) {
+        setError(
+          walletType === "google"
+            ? "Google Wallet todavía no está habilitado para este comercio"
+            : "Apple Wallet todavía no está habilitado para este comercio",
+        );
+        setLoadingWallet(null);
         return;
       }
 
-      if (data.saveUrl) {
-        // Redirigir a Google Wallet
+      if (!res.ok) {
+        setError(data.error || "No se pudo emitir la tarjeta.");
+        setLoadingWallet(null);
+        return;
+      }
+
+      // Redirección al link de Wallet correspondiente
+      if (walletType === "google" && data.saveUrl) {
         window.location.href = data.saveUrl;
+      } else if (walletType === "apple" && data.downloadUrl) {
+        window.location.href = data.downloadUrl;
       }
     } catch {
       setError("Error de conexión al emitir la tarjeta. Intentá nuevamente.");
-      setLoading(false);
+      setLoadingWallet(null);
     }
   };
 
@@ -184,7 +202,7 @@ function NuevoPaseForm() {
             color: theme.text.secondary,
           }}
         >
-          Guardá tu tarjeta de sellos en Google Wallet
+          Guardá tu tarjeta de sellos en tu teléfono
         </p>
       </div>
 
@@ -199,13 +217,14 @@ function NuevoPaseForm() {
             fontSize: "13px",
             fontWeight: 600,
             marginBottom: "20px",
+            lineHeight: 1.4,
           }}
         >
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <div>
         <div style={{ marginBottom: "24px" }}>
           <label
             htmlFor="nombre-cliente"
@@ -248,28 +267,68 @@ function NuevoPaseForm() {
           </span>
         </div>
 
-        <button
-          type="submit"
-          id="btn-guardar-google-wallet"
-          disabled={loading}
-          style={{
-            width: "100%",
-            backgroundColor: theme.button.primaryBg,
-            color: theme.button.primaryText,
-            border: "none",
-            borderRadius: "12px",
-            padding: "16px",
-            fontSize: "16px",
-            fontWeight: 700,
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
-            boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
-            transition: "transform 0.15s ease",
-          }}
-        >
-          {loading ? "Generando tarjeta..." : "Guardar en Google Wallet"}
-        </button>
-      </form>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* Botón Google Wallet */}
+          <button
+            type="button"
+            id="btn-guardar-google-wallet"
+            onClick={() => handleEmitirPase("google")}
+            disabled={loadingWallet !== null}
+            style={{
+              width: "100%",
+              backgroundColor: theme.button.primaryBg,
+              color: theme.button.primaryText,
+              border: "none",
+              borderRadius: "12px",
+              padding: "15px 16px",
+              fontSize: "15px",
+              fontWeight: 700,
+              cursor: loadingWallet !== null ? "not-allowed" : "pointer",
+              opacity: loadingWallet !== null ? 0.7 : 1,
+              boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            {loadingWallet === "google"
+              ? "Generando tarjeta..."
+              : "Guardar en Google Wallet"}
+          </button>
+
+          {/* Botón Apple Wallet */}
+          <button
+            type="button"
+            id="btn-guardar-apple-wallet"
+            onClick={() => handleEmitirPase("apple")}
+            disabled={loadingWallet !== null}
+            style={{
+              width: "100%",
+              backgroundColor: theme.colors.azulNoche,
+              color: "#FFFFFF",
+              border: "none",
+              borderRadius: "12px",
+              padding: "15px 16px",
+              fontSize: "15px",
+              fontWeight: 700,
+              cursor: loadingWallet !== null ? "not-allowed" : "pointer",
+              opacity: loadingWallet !== null ? 0.7 : 1,
+              boxShadow: "0 4px 12px rgba(10, 37, 64, 0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            {loadingWallet === "apple"
+              ? "Generando pase..."
+              : "Agregar a Apple Wallet"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
