@@ -218,6 +218,24 @@ export const redemptions = pgTable(
   ],
 );
 
+// campanias: campañas de notificaciones push masivas enviadas por el comercio
+export const campanias = pgTable(
+  "campanias",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    merchantId: uuid("merchant_id")
+      .notNull()
+      .references(() => merchants.id, { onDelete: "cascade" }),
+    titulo: text("titulo").notNull(),
+    cuerpo: text("cuerpo").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("campanias_merchant_id_idx").on(table.merchantId),
+    index("campanias_created_at_idx").on(table.createdAt),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
 export type Merchant = typeof merchants.$inferSelect;
@@ -227,3 +245,4 @@ export type Pass = typeof passes.$inferSelect;
 export type Stamp = typeof stamps.$inferSelect;
 export type Reward = typeof rewards.$inferSelect;
 export type Redemption = typeof redemptions.$inferSelect;
+export type Campania = typeof campanias.$inferSelect;

@@ -1,7 +1,9 @@
 import { mensajeSelloSchema } from "@fidelitypass/contracts";
+import { db, passes } from "@fidelitypass/db";
+import { and, eq } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 import { env } from "../env";
-import { pushStampsUpdate } from "./apple";
+import { isAppleWalletConfigured, pushStampsUpdate } from "./apple";
 import { isGoogleWalletConfigured } from "./google";
 
 export interface NotifyStampAddedArgs {
@@ -9,6 +11,12 @@ export interface NotifyStampAddedArgs {
   sellosAcumulados: number;
   googleWalletObjectId?: string | null;
   serialNumber?: string | null;
+}
+
+export interface SendCampaignArgs {
+  merchantId: string;
+  titulo: string;
+  cuerpo: string;
 }
 
 /**
@@ -141,4 +149,64 @@ export async function notifyStampAdded(
       );
     }
   }
+}
+
+/**
+ * Envío de campaña push masiva a todas las tarjetas activas del comercio.
+ * Fan-out independiente:
+ * - Google Wallet: Messages API por objeto.
+ * - Apple Wallet: push a los dispositivos registrados de cada pase.
+ * Si falla un envío individual, se loguea y continúa con los restantes.
+ * Devuelve el número de pases activos alcanzados.
+ */
+export async function sendCampaign(
+  args: SendCampaignArgs,
+): Promise<{ enviadas: number }> {
+  const { merchantId, titulo, cuerpo } = args;
+
+  // 1. Obtener todos los pases activos del comercio
+  const activePasses = await db
+    .select({
+      id: passes.id,
+      serialNumber: passes.serialNumber,
+      googleWalletObjectId: passes.googleWalletObjectId,
+    })
+    .from(passes)
+    .where(and(eq(passes.merchantId, merchantId), eq(passes.estado, "activa")));
+
+  const googleConfigured = isGoogleWalletConfigured();
+  const appleConfigured = isAppleWalletConfigured();
+
+  // Fan-out a todas las tarjetas activas
+  for (const pass of activePasses) {
+    // Google Wallet Messages API
+    if (googleConfigured && pass.googleWalletObjectId) {
+      try {
+        await sendGoogleWalletMessage(
+          pass.googleWalletObjectId,
+          titulo,
+          cuerpo,
+        );
+      } catch (err) {
+        console.error(
+          `[Campaña Google Wallet] Error al notificar objeto ${pass.googleWalletObjectId}:`,
+          err,
+        );
+      }
+    }
+
+    // Apple Wallet Push a dispositivos registrados
+    if (appleConfigured && pass.serialNumber) {
+      try {
+        await pushStampsUpdate(pass.serialNumber, 0, cuerpo);
+      } catch (err) {
+        console.error(
+          `[Campaña Apple Wallet] Error al notificar serie ${pass.serialNumber}:`,
+          err,
+        );
+      }
+    }
+  }
+
+  return { enviadas: activePasses.length };
 }
