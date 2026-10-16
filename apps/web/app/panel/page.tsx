@@ -1,12 +1,56 @@
 "use client";
 
+import type {
+  DashboardResumen,
+  PaseListItem,
+  SelloListItem,
+} from "@fidelitypass/contracts";
 import { theme } from "@fidelitypass/ui";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { authClient } from "../../lib/auth-client";
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Error ${res.status}: ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export default function PanelPage() {
   const router = useRouter();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending: sessionLoading } = authClient.useSession();
+
+  // 1. Resumen de métricas
+  const {
+    data: resumen,
+    isLoading: resumenLoading,
+    isError: resumenError,
+  } = useQuery<DashboardResumen>({
+    queryKey: ["panel", "resumen"],
+    queryFn: () => fetchJson<DashboardResumen>("/api/panel/resumen"),
+  });
+
+  // 2. Lista de tarjetas emitidas
+  const {
+    data: pases = [],
+    isLoading: pasesLoading,
+    isError: pasesError,
+  } = useQuery<PaseListItem[]>({
+    queryKey: ["panel", "pases"],
+    queryFn: () => fetchJson<PaseListItem[]>("/api/panel/pases"),
+  });
+
+  // 3. Lista de sellos recientes
+  const {
+    data: sellos = [],
+    isLoading: sellosLoading,
+    isError: sellosError,
+  } = useQuery<SelloListItem[]>({
+    queryKey: ["panel", "sellos"],
+    queryFn: () => fetchJson<SelloListItem[]>("/api/panel/sellos"),
+  });
 
   const handleSignOut = async () => {
     await authClient.signOut({
@@ -18,7 +62,9 @@ export default function PanelPage() {
     });
   };
 
-  if (isPending) {
+  const nombreComercio = session?.user?.name || "Comercio";
+
+  if (sessionLoading) {
     return (
       <main
         style={{
@@ -30,13 +76,11 @@ export default function PanelPage() {
         }}
       >
         <p style={{ color: theme.text.secondary, fontSize: "15px" }}>
-          Cargando panel...
+          Cargando sesión...
         </p>
       </main>
     );
   }
-
-  const nombre = session?.user?.name || "Comercio";
 
   return (
     <main
@@ -49,24 +93,22 @@ export default function PanelPage() {
     >
       <div
         style={{
-          maxWidth: "760px",
+          maxWidth: "1040px",
           margin: "0 auto",
-          backgroundColor: "#FFFFFF",
-          borderRadius: "16px",
-          padding: "36px 32px",
-          boxShadow: "0 15px 35px -10px rgba(10, 37, 64, 0.08)",
-          border: `1px solid ${theme.colors.niebla}`,
-          boxSizing: "border-box",
         }}
       >
-        <div
+        {/* Cabecera del Panel */}
+        <header
           style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "24px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
             display: "flex",
             justifyContent: "space-between",
             alignItems: "flex-start",
-            borderBottom: `1px solid ${theme.colors.niebla}`,
-            paddingBottom: "24px",
-            marginBottom: "28px",
             flexWrap: "wrap",
             gap: "16px",
           }}
@@ -97,8 +139,17 @@ export default function PanelPage() {
                 color: theme.text.onLight,
               }}
             >
-              Panel de {nombre}
+              Panel de {nombreComercio}
             </h1>
+            <p
+              style={{
+                margin: "4px 0 0 0",
+                fontSize: "14px",
+                color: theme.text.secondary,
+              }}
+            >
+              {session?.user?.email}
+            </p>
           </div>
 
           <button
@@ -114,102 +165,367 @@ export default function PanelPage() {
               fontSize: "13px",
               fontWeight: 600,
               cursor: "pointer",
-              transition: "background-color 0.15s ease",
             }}
           >
             Cerrar sesión
           </button>
-        </div>
+        </header>
 
-        <div
+        {/* Tarjetas de Resumen (Métricas) */}
+        <section
           style={{
-            backgroundColor: theme.surface.light,
-            borderRadius: "12px",
-            padding: "20px 24px",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: "20px",
             marginBottom: "28px",
           }}
         >
-          <div style={{ marginBottom: "12px" }}>
+          <div
+            id="card-pases-emitidos"
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderRadius: "16px",
+              padding: "24px",
+              boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+              border: `1px solid ${theme.colors.niebla}`,
+            }}
+          >
             <span
               style={{
                 fontSize: "13px",
-                color: theme.text.secondary,
-                display: "block",
-                marginBottom: "2px",
-              }}
-            >
-              Plan actual
-            </span>
-            <span
-              style={{
-                fontSize: "16px",
-                fontWeight: 700,
-                color: theme.accent.premium,
-                textTransform: "capitalize",
-              }}
-            >
-              Básico ($19.900 ARS/mes) — Piloto
-            </span>
-          </div>
-
-          <div>
-            <span
-              style={{
-                fontSize: "13px",
-                color: theme.text.secondary,
-                display: "block",
-                marginBottom: "2px",
-              }}
-            >
-              Email de contacto
-            </span>
-            <span
-              style={{
-                fontSize: "15px",
                 fontWeight: 600,
+                color: theme.text.secondary,
+                display: "block",
+                marginBottom: "8px",
+              }}
+            >
+              Tarjetas emitidas
+            </span>
+            <div
+              style={{
+                fontSize: "36px",
+                fontWeight: 700,
                 color: theme.text.onLight,
               }}
             >
-              {session?.user?.email}
-            </span>
+              {resumenLoading
+                ? "..."
+                : resumenError
+                  ? "-"
+                  : (resumen?.pasesEmitidos ?? 0)}
+            </div>
           </div>
-        </div>
 
-        <div
+          <div
+            id="card-sellos-hoy"
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderRadius: "16px",
+              padding: "24px",
+              boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+              border: `1px solid ${theme.colors.niebla}`,
+            }}
+          >
+            <span
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: theme.text.secondary,
+                display: "block",
+                marginBottom: "8px",
+              }}
+            >
+              Sellos de hoy
+            </span>
+            <div
+              style={{
+                fontSize: "36px",
+                fontWeight: 700,
+                color: theme.accent.premium,
+              }}
+            >
+              {resumenLoading
+                ? "..."
+                : resumenError
+                  ? "-"
+                  : (resumen?.sellosHoy ?? 0)}
+            </div>
+          </div>
+
+          <div
+            id="card-sellos-total"
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderRadius: "16px",
+              padding: "24px",
+              boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+              border: `1px solid ${theme.colors.niebla}`,
+            }}
+          >
+            <span
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: theme.text.secondary,
+                display: "block",
+                marginBottom: "8px",
+              }}
+            >
+              Sellos totales
+            </span>
+            <div
+              style={{
+                fontSize: "36px",
+                fontWeight: 700,
+                color: theme.button.primaryBg,
+              }}
+            >
+              {resumenLoading
+                ? "..."
+                : resumenError
+                  ? "-"
+                  : (resumen?.sellosTotal ?? 0)}
+            </div>
+          </div>
+        </section>
+
+        {/* Tabla: Tarjetas emitidas */}
+        <section
           style={{
-            padding: "28px 24px",
-            borderRadius: "12px",
-            border: `1.5px dashed ${theme.colors.celesteBandera}`,
-            textAlign: "center",
             backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
           }}
         >
           <h2
             style={{
-              margin: "0 0 8px 0",
-              fontSize: "17px",
+              margin: "0 0 16px 0",
+              fontSize: "18px",
               fontWeight: 700,
               color: theme.text.onLight,
             }}
           >
-            Programa de tarjetas de fidelidad
+            Tarjetas emitidas
           </h2>
-          <p
+
+          {pasesLoading ? (
+            <p style={{ color: theme.text.secondary, margin: "16px 0" }}>
+              Cargando tarjetas...
+            </p>
+          ) : pasesError ? (
+            <p style={{ color: "#DC2626", margin: "16px 0" }}>
+              No se pudieron cargar las tarjetas.
+            </p>
+          ) : pases.length === 0 ? (
+            <div
+              id="empty-pases"
+              style={{
+                padding: "32px 16px",
+                textAlign: "center",
+                backgroundColor: theme.surface.light,
+                borderRadius: "12px",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: theme.text.secondary,
+                }}
+              >
+                Todavía no emitiste tarjetas. Cuando emitas la primera, la vas a
+                ver acá.
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  textAlign: "left",
+                  fontSize: "14px",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: `2px solid ${theme.colors.niebla}`,
+                      color: theme.text.secondary,
+                    }}
+                  >
+                    <th style={{ padding: "12px 16px" }}>Cliente</th>
+                    <th style={{ padding: "12px 16px" }}>Estado</th>
+                    <th style={{ padding: "12px 16px" }}>Sellos</th>
+                    <th style={{ padding: "12px 16px" }}>Fecha de alta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pases.map((pase) => (
+                    <tr
+                      key={pase.id}
+                      style={{
+                        borderBottom: `1px solid ${theme.colors.niebla}`,
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          fontWeight: 600,
+                          color: theme.text.onLight,
+                        }}
+                      >
+                        {pase.clienteNombre}
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <span
+                          style={{
+                            padding: "3px 8px",
+                            borderRadius: "10px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            backgroundColor:
+                              pase.estado === "activa" ? "#DCFCE7" : "#FEE2E2",
+                            color:
+                              pase.estado === "activa" ? "#166534" : "#991B1B",
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {pase.estado}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>{pase.sellos}</td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        {new Date(pase.createdAt).toLocaleDateString("es-AR")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Tabla: Sellos recientes */}
+        <section
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          <h2
             style={{
-              margin: 0,
-              fontSize: "14px",
-              lineHeight: 1.5,
-              color: theme.text.secondary,
-              maxWidth: "520px",
-              marginLeft: "auto",
-              marginRight: "auto",
+              margin: "0 0 16px 0",
+              fontSize: "18px",
+              fontWeight: 700,
+              color: theme.text.onLight,
             }}
           >
-            Tu comercio ya está registrado en Neon. En las próximas etapas
-            activaremos la emisión de pases en Google Wallet y el sellado por
-            QR.
-          </p>
-        </div>
+            Sellos recientes
+          </h2>
+
+          {sellosLoading ? (
+            <p style={{ color: theme.text.secondary, margin: "16px 0" }}>
+              Cargando sellos...
+            </p>
+          ) : sellosError ? (
+            <p style={{ color: "#DC2626", margin: "16px 0" }}>
+              No se pudieron cargar los sellos.
+            </p>
+          ) : sellos.length === 0 ? (
+            <div
+              id="empty-sellos"
+              style={{
+                padding: "32px 16px",
+                textAlign: "center",
+                backgroundColor: theme.surface.light,
+                borderRadius: "12px",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: theme.text.secondary,
+                }}
+              >
+                Todavía no se registraron sellos. Cuando un cliente sume sellos,
+                van a aparecer acá.
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  textAlign: "left",
+                  fontSize: "14px",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: `2px solid ${theme.colors.niebla}`,
+                      color: theme.text.secondary,
+                    }}
+                  >
+                    <th style={{ padding: "12px 16px" }}>Cliente</th>
+                    <th style={{ padding: "12px 16px" }}>Otorgado por</th>
+                    <th style={{ padding: "12px 16px" }}>Fecha y hora</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sellos.map((sello) => (
+                    <tr
+                      key={sello.id}
+                      style={{
+                        borderBottom: `1px solid ${theme.colors.niebla}`,
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          fontWeight: 600,
+                          color: theme.text.onLight,
+                        }}
+                      >
+                        {sello.clienteNombre}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: theme.text.onLight,
+                        }}
+                      >
+                        {sello.otorgadoPor}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        {new Date(sello.createdAt).toLocaleString("es-AR")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
