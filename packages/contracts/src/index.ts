@@ -1,4 +1,5 @@
 export * from "./auth";
+export * from "./campanias";
 export * from "./notificaciones";
 export * from "./panel";
 export * from "./pases";

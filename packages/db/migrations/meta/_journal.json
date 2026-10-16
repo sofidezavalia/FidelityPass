@@ -43,6 +43,13 @@
       "when": 1792183580644,
       "tag": "0005_wet_toad_men",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792184395516,
+      "tag": "0006_solid_texas_twister",
+      "breakpoints": true
     }
   ]
 }

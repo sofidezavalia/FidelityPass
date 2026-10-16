@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  campaniaSchema,
   type DashboardResumen,
   type PaseListItem,
   personalizacionSchema,
@@ -45,6 +46,13 @@ interface RewardItem {
 
 interface ReglasResponse {
   maxSellosPorDia: number;
+}
+
+interface CampaniaItem {
+  id: string;
+  titulo: string;
+  cuerpo: string;
+  createdAt: string;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -183,6 +191,25 @@ export default function PanelPage() {
     }
   }, [reglasData]);
 
+  // Estados locales para Campañas (PR-10)
+  const [campaniaTitulo, setCampaniaTitulo] = useState("");
+  const [campaniaCuerpo, setCampaniaCuerpo] = useState("");
+  const [showConfirmCampania, setShowConfirmCampania] = useState(false);
+  const [campaniaLoading, setCampaniaLoading] = useState(false);
+  const [campaniaError, setCampaniaError] = useState("");
+  const [campaniaSuccess, setCampaniaSuccess] = useState("");
+
+  // 8. Historial de campañas (PR-10)
+  const {
+    data: campaniasList = [],
+    isLoading: campaniasLoading,
+    isError: campaniasError,
+  } = useQuery<CampaniaItem[]>({
+    queryKey: ["panel", "campanias"],
+    queryFn: () => fetchJson<CampaniaItem[]>("/api/campanias"),
+  });
+  const activePassesCount = pases.filter((p) => p.estado === "activa").length;
+
   const handleGuardarRecompensa = async (e: FormEvent) => {
     e.preventDefault();
     setRewardError("");
@@ -309,6 +336,68 @@ export default function PanelPage() {
       setReglasError("Error de conexión al guardar las reglas.");
     } finally {
       setSavingReglas(false);
+    }
+  };
+
+  const handlePreConfirmarCampania = (e: FormEvent) => {
+    e.preventDefault();
+    setCampaniaError("");
+    setCampaniaSuccess("");
+
+    const validation = campaniaSchema.safeParse({
+      titulo: campaniaTitulo.trim(),
+      cuerpo: campaniaCuerpo.trim(),
+    });
+
+    if (!validation.success) {
+      setCampaniaError(
+        validation.error.issues[0]?.message || "Datos de campaña inválidos",
+      );
+      return;
+    }
+
+    setShowConfirmCampania(true);
+  };
+
+  const handleEnviarCampania = async () => {
+    setCampaniaError("");
+    setCampaniaSuccess("");
+    setCampaniaLoading(true);
+
+    try {
+      const res = await fetch("/api/campanias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          titulo: campaniaTitulo.trim(),
+          cuerpo: campaniaCuerpo.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 503) {
+          setCampaniaError(data.error || "Wallets no configurados");
+        } else {
+          setCampaniaError(data.error || "Error al enviar la campaña");
+        }
+        setShowConfirmCampania(false);
+        return;
+      }
+
+      setCampaniaSuccess(
+        `Campaña enviada con éxito a ${data.enviadas ?? activePassesCount} tarjeta(s) activa(s).`,
+      );
+      setCampaniaTitulo("");
+      setCampaniaCuerpo("");
+      setShowConfirmCampania(false);
+      queryClient.invalidateQueries({ queryKey: ["panel", "campanias"] });
+      setTimeout(() => setCampaniaSuccess(""), 5000);
+    } catch {
+      setCampaniaError("Error de conexión al enviar la campaña.");
+      setShowConfirmCampania(false);
+    } finally {
+      setCampaniaLoading(false);
     }
   };
 
@@ -2270,6 +2359,452 @@ export default function PanelPage() {
             </button>
           </form>
         </section>
+
+        {/* Sección: Campañas (PR-10) */}
+        <section
+          id="seccion-campanias"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          <div style={{ marginBottom: "24px" }}>
+            <h2
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "18px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              Campañas (Push masivo)
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                color: theme.text.secondary,
+              }}
+            >
+              Redactá un título y cuerpo para enviarlo como notificación push a
+              todas tus tarjetas activas.
+            </p>
+          </div>
+
+          {campaniaSuccess && (
+            <div
+              id="campania-success-msg"
+              style={{
+                backgroundColor: "#ECFDF5",
+                color: "#065F46",
+                padding: "12px 16px",
+                borderRadius: "8px",
+                fontSize: "14px",
+                marginBottom: "20px",
+                border: "1px solid #A7F3D0",
+              }}
+            >
+              {campaniaSuccess}
+            </div>
+          )}
+
+          {campaniaError && (
+            <div
+              id="campania-error-msg"
+              style={{
+                backgroundColor: "#FEF2F2",
+                color: "#991B1B",
+                padding: "12px 16px",
+                borderRadius: "8px",
+                fontSize: "14px",
+                marginBottom: "20px",
+                border: "1px solid #FECACA",
+              }}
+            >
+              {campaniaError}
+            </div>
+          )}
+
+          {/* Formulario de Campaña */}
+          <form
+            onSubmit={handlePreConfirmarCampania}
+            style={{ marginBottom: "36px" }}
+          >
+            <div style={{ marginBottom: "16px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "6px",
+                }}
+              >
+                <label
+                  htmlFor="input-campania-titulo"
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                  }}
+                >
+                  Título de la campaña
+                </label>
+                <span
+                  id="counter-campania-titulo"
+                  style={{
+                    fontSize: "12px",
+                    color:
+                      campaniaTitulo.length > 60
+                        ? "#DC2626"
+                        : theme.text.secondary,
+                    fontWeight: campaniaTitulo.length > 60 ? 600 : 400,
+                  }}
+                >
+                  {campaniaTitulo.length} / 60
+                </span>
+              </div>
+              <input
+                id="input-campania-titulo"
+                type="text"
+                value={campaniaTitulo}
+                onChange={(e) => setCampaniaTitulo(e.target.value)}
+                maxLength={60}
+                placeholder="Ej. ¡Promo especial 2x1 este finde!"
+                required
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  border: `1px solid ${theme.colors.niebla}`,
+                  fontSize: "14px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "6px",
+                }}
+              >
+                <label
+                  htmlFor="input-campania-cuerpo"
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                  }}
+                >
+                  Mensaje / Cuerpo
+                </label>
+                <span
+                  id="counter-campania-cuerpo"
+                  style={{
+                    fontSize: "12px",
+                    color:
+                      campaniaCuerpo.length > 280
+                        ? "#DC2626"
+                        : theme.text.secondary,
+                    fontWeight: campaniaCuerpo.length > 280 ? 600 : 400,
+                  }}
+                >
+                  {campaniaCuerpo.length} / 280
+                </span>
+              </div>
+              <textarea
+                id="input-campania-cuerpo"
+                rows={3}
+                value={campaniaCuerpo}
+                onChange={(e) => setCampaniaCuerpo(e.target.value)}
+                maxLength={280}
+                placeholder="Ej. Mostrá tu tarjeta al pedir y sumá sellos dobles. ¡Válido hasta el domingo!"
+                required
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  border: `1px solid ${theme.colors.niebla}`,
+                  fontSize: "14px",
+                  outline: "none",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              id="btn-enviar-campania"
+              disabled={campaniaLoading}
+              style={{
+                backgroundColor: theme.button.primaryBg,
+                color: theme.button.primaryText,
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 24px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: campaniaLoading ? "not-allowed" : "pointer",
+                opacity: campaniaLoading ? 0.7 : 1,
+              }}
+            >
+              Enviar a todas mis tarjetas
+            </button>
+          </form>
+
+          {/* Historial de campañas */}
+          <div
+            style={{
+              borderTop: `1px solid ${theme.colors.niebla}`,
+              paddingTop: "24px",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "16px",
+                fontWeight: 600,
+                color: theme.text.onLight,
+              }}
+            >
+              Historial de campañas enviadas
+            </h3>
+
+            {campaniasLoading ? (
+              <p
+                style={{
+                  color: theme.text.secondary,
+                  fontSize: "14px",
+                  margin: 0,
+                }}
+              >
+                Cargando historial de campañas...
+              </p>
+            ) : campaniasError ? (
+              <p style={{ color: "#DC2626", fontSize: "14px", margin: 0 }}>
+                No se pudo cargar el historial de campañas.
+              </p>
+            ) : campaniasList.length === 0 ? (
+              <p
+                id="empty-campanias"
+                style={{
+                  color: theme.text.secondary,
+                  fontSize: "14px",
+                  margin: 0,
+                }}
+              >
+                Aún no has enviado ninguna campaña.
+              </p>
+            ) : (
+              <div
+                id="tabla-campanias"
+                style={{
+                  overflowX: "auto",
+                  border: `1px solid ${theme.colors.niebla}`,
+                  borderRadius: "8px",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "14px",
+                    textAlign: "left",
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        backgroundColor: "#F9FAFB",
+                        borderBottom: `1px solid ${theme.colors.niebla}`,
+                        color: theme.text.secondary,
+                        fontSize: "12px",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      <th style={{ padding: "12px 16px" }}>Título</th>
+                      <th style={{ padding: "12px 16px" }}>Mensaje</th>
+                      <th style={{ padding: "12px 16px" }}>Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaniasList.map((campania) => (
+                      <tr
+                        key={campania.id}
+                        style={{
+                          borderBottom: `1px solid ${theme.colors.niebla}`,
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "12px 16px",
+                            fontWeight: 600,
+                            color: theme.text.onLight,
+                          }}
+                        >
+                          {campania.titulo}
+                        </td>
+                        <td
+                          style={{
+                            padding: "12px 16px",
+                            color: theme.text.secondary,
+                            maxWidth: "400px",
+                          }}
+                        >
+                          {campania.cuerpo}
+                        </td>
+                        <td
+                          style={{
+                            padding: "12px 16px",
+                            color: theme.text.secondary,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {new Date(campania.createdAt).toLocaleString(
+                            "es-AR",
+                            {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Modal de confirmación de campaña */}
+        {showConfirmCampania && (
+          <div
+            id="modal-confirmar-campania"
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(10, 37, 64, 0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "20px",
+              zIndex: 1000,
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: "420px",
+                backgroundColor: "#FFFFFF",
+                borderRadius: "16px",
+                padding: "28px 24px",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+                textAlign: "center",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 12px 0",
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                ¿Confirmar envío de campaña?
+              </h3>
+              <p
+                style={{
+                  fontSize: "15px",
+                  color: theme.text.onLight,
+                  lineHeight: 1.5,
+                  margin: "0 0 8px 0",
+                  fontWeight: 500,
+                }}
+              >
+                Se va a enviar a <strong>{activePassesCount}</strong>{" "}
+                {activePassesCount === 1
+                  ? "tarjeta activa"
+                  : "tarjetas activas"}
+                . ¿Confirmás?
+              </p>
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: "#DC2626",
+                  lineHeight: 1.4,
+                  margin: "0 0 24px 0",
+                  fontWeight: 500,
+                }}
+              >
+                El envío masivo no se deshace.
+              </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                <button
+                  type="button"
+                  id="btn-confirmar-envio-campania"
+                  disabled={campaniaLoading}
+                  onClick={handleEnviarCampania}
+                  style={{
+                    backgroundColor: theme.button.primaryBg,
+                    color: theme.button.primaryText,
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "14px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    cursor: campaniaLoading ? "not-allowed" : "pointer",
+                    opacity: campaniaLoading ? 0.7 : 1,
+                  }}
+                >
+                  {campaniaLoading ? "Enviando push..." : "Confirmar y enviar"}
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-cancelar-campania"
+                  disabled={campaniaLoading}
+                  onClick={() => setShowConfirmCampania(false)}
+                  style={{
+                    backgroundColor: "transparent",
+                    color: theme.text.secondary,
+                    border: `1px solid ${theme.colors.niebla}`,
+                    borderRadius: "10px",
+                    padding: "12px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: campaniaLoading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabla: Tarjetas emitidas */}
         <section
