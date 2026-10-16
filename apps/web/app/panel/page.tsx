@@ -8,6 +8,7 @@ import type {
 import { theme } from "@fidelitypass/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
 import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "../../lib/auth-client";
 
@@ -35,13 +36,15 @@ export default function PanelPage() {
   const queryClient = useQueryClient();
   const { data: session, isPending: sessionLoading } = authClient.useSession();
 
-  // Estados locales para el alta de empleados
+  // Estados locales para el alta de empleados y QR
   const [nombreStaff, setNombreStaff] = useState("");
   const [pinStaff, setPinStaff] = useState("");
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState("");
   const [staffSuccess, setStaffSuccess] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedPassLink, setCopiedPassLink] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
   const [origin, setOrigin] = useState("");
 
   useEffect(() => {
@@ -143,6 +146,25 @@ export default function PanelPage() {
   const employeeLoginLink = staffData?.merchantId
     ? `${origin || "http://localhost:3000"}/empleado/login?c=${staffData.merchantId}`
     : "";
+
+  const publicPassUrl = staffData?.merchantId
+    ? `${origin || "http://localhost:3000"}/pases/nuevo?c=${staffData.merchantId}`
+    : "";
+
+  useEffect(() => {
+    if (publicPassUrl) {
+      QRCode.toDataURL(publicPassUrl, {
+        width: 180,
+        margin: 1,
+        color: {
+          dark: "#0A2540",
+          light: "#FFFFFF",
+        },
+      })
+        .then(setQrDataUrl)
+        .catch(console.error);
+    }
+  }, [publicPassUrl]);
 
   const handleCopyLink = () => {
     if (!employeeLoginLink) return;
@@ -375,6 +397,175 @@ export default function PanelPage() {
                   ? "-"
                   : (resumen?.sellosTotal ?? 0)}
             </div>
+          </div>
+        </section>
+
+        {/* SECCIÓN: QR PARA EMITIR TARJETAS */}
+        <section
+          id="seccion-qr-emision"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "24px",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: "280px" }}>
+            <div
+              style={{
+                display: "inline-block",
+                padding: "3px 10px",
+                borderRadius: "12px",
+                backgroundColor: `${theme.accent.premium}1A`,
+                color: theme.accent.premium,
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Captación de clientes
+            </div>
+            <h2
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "20px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              Tu QR para emitir tarjetas
+            </h2>
+            <p
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "14px",
+                color: theme.text.secondary,
+                fontWeight: 600,
+              }}
+            >
+              Imprimilo y ponelo en las mesas
+            </p>
+            <p
+              style={{
+                margin: "0 0 18px 0",
+                fontSize: "13px",
+                color: theme.text.secondary,
+                lineHeight: 1.5,
+              }}
+            >
+              Tus clientes escanean este código con su teléfono, ingresan su
+              nombre y guardan la tarjeta digital de tu local en Google Wallet
+              en menos de 10 segundos.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="text"
+                readOnly
+                value={publicPassUrl}
+                style={{
+                  flex: 1,
+                  minWidth: "200px",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "13px",
+                  backgroundColor: theme.surface.light,
+                  color: theme.text.onLight,
+                  outline: "none",
+                }}
+              />
+              <button
+                type="button"
+                id="btn-copiar-link-pase"
+                onClick={() => {
+                  if (!publicPassUrl) return;
+                  navigator.clipboard.writeText(publicPassUrl);
+                  setCopiedPassLink(true);
+                  setTimeout(() => setCopiedPassLink(false), 2500);
+                }}
+                style={{
+                  backgroundColor: theme.button.primaryBg,
+                  color: theme.button.primaryText,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 16px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {copiedPassLink ? "¡Copiado!" : "Copiar enlace"}
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: theme.surface.light,
+              borderRadius: "16px",
+              border: `1px solid ${theme.colors.niebla}`,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto",
+            }}
+          >
+            {qrDataUrl ? (
+              /* biome-ignore lint/performance/noImgElement: Data URL generado dinámicamente en el cliente */
+              <img
+                src={qrDataUrl}
+                alt="QR para emitir tarjetas"
+                style={{
+                  width: "180px",
+                  height: "180px",
+                  borderRadius: "8px",
+                  display: "block",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "180px",
+                  height: "180px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: theme.text.secondary,
+                  fontSize: "13px",
+                }}
+              >
+                Generando QR...
+              </div>
+            )}
+            <span
+              style={{
+                marginTop: "8px",
+                fontSize: "11px",
+                color: theme.text.secondary,
+                fontWeight: 600,
+              }}
+            >
+              Escanear para probar
+            </span>
           </div>
         </section>
 
