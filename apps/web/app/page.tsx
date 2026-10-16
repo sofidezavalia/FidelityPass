@@ -1,4 +1,5 @@
 import { theme } from "@fidelitypass/ui";
+import Link from "next/link";
 
 export default function Page() {
   return (
@@ -68,24 +69,49 @@ export default function Page() {
           tokens verificados.
         </p>
 
-        <button
-          type="button"
-          id="btn-ejemplo"
+        <div
           style={{
-            backgroundColor: theme.button.primaryBg,
-            color: theme.button.primaryText,
-            border: "none",
-            borderRadius: "10px",
-            padding: "14px 28px",
-            fontSize: "15px",
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
-            transition: "transform 0.15s ease, box-shadow 0.15s ease",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
           }}
         >
-          Botón primario de ejemplo
-        </button>
+          <Link
+            href="/registro"
+            id="link-registro"
+            style={{
+              display: "block",
+              backgroundColor: theme.button.primaryBg,
+              color: theme.button.primaryText,
+              textDecoration: "none",
+              borderRadius: "10px",
+              padding: "14px 28px",
+              fontSize: "15px",
+              fontWeight: 700,
+              boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+            }}
+          >
+            Registrar comercio
+          </Link>
+
+          <Link
+            href="/login"
+            id="link-login"
+            style={{
+              display: "block",
+              backgroundColor: "transparent",
+              color: theme.text.onLight,
+              textDecoration: "none",
+              borderRadius: "10px",
+              padding: "12px 28px",
+              fontSize: "14px",
+              fontWeight: 600,
+              border: `1px solid #CBD5E1`,
+            }}
+          >
+            Ingresar al panel
+          </Link>
+        </div>
       </div>
     </main>
   );

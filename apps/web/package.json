@@ -8,10 +8,14 @@
     "start": "next start"
   },
   "dependencies": {
+    "@fidelitypass/contracts": "*",
+    "@fidelitypass/db": "*",
     "@fidelitypass/ui": "*",
+    "better-auth": "^1.7.10",
     "next": "^16.4.2",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
