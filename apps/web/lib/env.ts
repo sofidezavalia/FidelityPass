@@ -15,6 +15,11 @@ const envSchema = z.object({
     ),
   BETTER_AUTH_URL: z.string().url().default("http://localhost:3000"),
   // En producción (Vercel) BETTER_AUTH_URL debe ser la URL real del deploy.
+
+  // Google Wallet — Patrón "integración dormida" (opcionales)
+  GOOGLE_WALLET_ISSUER_ID: z.string().optional(),
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
