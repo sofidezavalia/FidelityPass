@@ -146,6 +146,7 @@ export async function createApplePass(
 export async function updateApplePassStamps(
   applePassId: string,
   sellos: number,
+  mensaje?: string,
 ): Promise<void> {
   if (!isAppleWalletConfigured() || !applePassId) {
     return;
@@ -158,6 +159,14 @@ export async function updateApplePassStamps(
     const baseUrl =
       env.PASSES_PROVIDER_BASE_URL || "https://api.passslot.com/v1";
 
+    const bodyPayload: Record<string, unknown> = {
+      value: String(sellos),
+    };
+    if (mensaje) {
+      bodyPayload.message = mensaje;
+      bodyPayload.changeMessage = mensaje;
+    }
+
     await fetch(
       `${baseUrl}/passes/${encodeURIComponent(applePassId)}/values/sellos`,
       {
@@ -166,7 +175,7 @@ export async function updateApplePassStamps(
           "Content-Type": "application/json",
           Authorization: apiKey,
         },
-        body: JSON.stringify({ value: String(sellos) }),
+        body: JSON.stringify(bodyPayload),
       },
     );
   } catch (err) {
