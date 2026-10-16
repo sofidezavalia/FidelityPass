@@ -34,6 +34,9 @@ const envSchema = z.object({
   STORAGE_ACCESS_KEY_ID: z.string().optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
   STORAGE_PUBLIC_URL: z.string().optional(),
+
+  // Cron Secret (Job diario de cumpleaños — PR-11)
+  CRON_SECRET: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

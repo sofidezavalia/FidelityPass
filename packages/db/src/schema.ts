@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   integer,
   pgEnum,
@@ -7,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -86,6 +88,7 @@ export const customers = pgTable("customers", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull(),
   email: text("email"),
+  fechaNacimiento: date("fecha_nacimiento"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -236,6 +239,20 @@ export const campanias = pgTable(
   ],
 );
 
+// saludos_cumple: registro de saludos automáticos de cumpleaños (idempotencia anual)
+export const saludosCumple = pgTable(
+  "saludos_cumple",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id),
+    anio: integer("anio").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("saludos_cumple_customer_anio").on(t.customerId, t.anio)],
+);
+
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
 export type Merchant = typeof merchants.$inferSelect;
@@ -246,3 +263,5 @@ export type Stamp = typeof stamps.$inferSelect;
 export type Reward = typeof rewards.$inferSelect;
 export type Redemption = typeof redemptions.$inferSelect;
 export type Campania = typeof campanias.$inferSelect;
+export type SaludoCumple = typeof saludosCumple.$inferSelect;
+export type NewSaludoCumple = typeof saludosCumple.$inferInsert;
