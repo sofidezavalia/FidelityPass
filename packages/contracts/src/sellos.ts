@@ -18,6 +18,7 @@ export const selloResultadoSchema = z.object({
   ok: z.literal(true),
   clienteNombre: z.string(),
   sellosAcumulados: z.number().int().nonnegative(),
+  saldoDisponible: z.number().int().nonnegative().optional(),
 });
 
 export type CrearStaffInput = z.infer<typeof crearStaffSchema>;

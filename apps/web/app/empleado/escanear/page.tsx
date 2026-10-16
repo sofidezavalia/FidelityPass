@@ -4,18 +4,30 @@ import { theme } from "@fidelitypass/ui";
 import type { Html5Qrcode } from "html5-qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+interface RecompensaItem {
+  id: string;
+  nombre: string;
+  descripcion?: string | null;
+  sellosRequeridos: number;
+  canjeable: boolean;
+}
+
 interface PassVerification {
   passId: string;
   clienteNombre: string;
   estado: string;
   sellosAcumulados: number;
+  saldoDisponible: number;
+  sellosHoy: number;
+  maxSellosPorDia: number;
   yaSelladoHoy: boolean;
+  recompensas: RecompensaItem[];
 }
 
 export default function EscanearPage() {
-  const [step, setStep] = useState<"SCANNING" | "VERIFYING" | "SUCCESS">(
-    "SCANNING",
-  );
+  const [step, setStep] = useState<
+    "SCANNING" | "VERIFYING" | "SUCCESS_STAMP" | "SUCCESS_CANJE"
+  >("SCANNING");
   const [scannedCode, setScannedCode] = useState("");
   const [verification, setVerification] = useState<PassVerification | null>(
     null,
@@ -23,10 +35,23 @@ export default function EscanearPage() {
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [stampLoading, setStampLoading] = useState(false);
+  const [canjeLoading, setCanjeLoading] = useState(false);
+
+  // Modal de confirmación de canje
+  const [canjeConfirm, setCanjeConfirm] = useState<RecompensaItem | null>(null);
+
   const [stampResult, setStampResult] = useState<{
     clienteNombre: string;
     sellosAcumulados: number;
+    saldoDisponible?: number;
   } | null>(null);
+
+  const [canjeResult, setCanjeResult] = useState<{
+    clienteNombre: string;
+    recompensa: string;
+    saldoRestante: number;
+  } | null>(null);
+
   const [cameraError, setCameraError] = useState("");
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -133,12 +158,50 @@ export default function EscanearPage() {
       setStampResult({
         clienteNombre: data.clienteNombre,
         sellosAcumulados: data.sellosAcumulados,
+        saldoDisponible: data.saldoDisponible,
       });
-      setStep("SUCCESS");
+      setStep("SUCCESS_STAMP");
     } catch {
       setVerifyError("Error de conexión al guardar el sello.");
     } finally {
       setStampLoading(false);
+    }
+  };
+
+  const handleConfirmarCanje = async () => {
+    if (!scannedCode || !canjeConfirm) return;
+    setCanjeLoading(true);
+
+    try {
+      const res = await fetch("/api/canjes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serialNumber: scannedCode,
+          rewardId: canjeConfirm.id,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setVerifyError(data.error || "Error al procesar el canje");
+        setCanjeLoading(false);
+        setCanjeConfirm(null);
+        return;
+      }
+
+      setCanjeResult({
+        clienteNombre: verification?.clienteNombre || "Cliente",
+        recompensa: data.recompensa,
+        saldoRestante: data.saldoRestante,
+      });
+      setCanjeConfirm(null);
+      setStep("SUCCESS_CANJE");
+    } catch {
+      setVerifyError("Error de conexión al procesar el canje.");
+    } finally {
+      setCanjeLoading(false);
     }
   };
 
@@ -148,7 +211,14 @@ export default function EscanearPage() {
     setVerification(null);
     setVerifyError("");
     setStampResult(null);
+    setCanjeResult(null);
+    setCanjeConfirm(null);
   };
+
+  const recompensasCanjeables =
+    verification?.recompensas.filter((r) => r.canjeable) || [];
+  const recompensasFuturas =
+    verification?.recompensas.filter((r) => !r.canjeable) || [];
 
   return (
     <main
@@ -165,7 +235,7 @@ export default function EscanearPage() {
       <div
         style={{
           width: "100%",
-          maxWidth: "460px",
+          maxWidth: "480px",
           backgroundColor: "#FFFFFF",
           borderRadius: "16px",
           padding: "28px 24px",
@@ -234,31 +304,30 @@ export default function EscanearPage() {
               </div>
             )}
 
-            {/* Ingreso manual para pruebas o contingencia */}
             <div
               style={{
-                marginTop: "20px",
-                paddingTop: "16px",
                 borderTop: `1px solid ${theme.colors.niebla}`,
+                paddingTop: "16px",
+                marginTop: "16px",
               }}
             >
               <label
-                htmlFor="manual-serial"
+                htmlFor="input-serial-manual"
                 style={{
                   display: "block",
-                  fontSize: "12px",
+                  fontSize: "13px",
                   fontWeight: 600,
-                  color: theme.text.secondary,
+                  color: theme.text.onLight,
                   marginBottom: "6px",
                 }}
               >
-                ¿Cámara no disponible? Ingresá el código del QR:
+                O ingresá el número de serie manual:
               </label>
               <div style={{ display: "flex", gap: "8px" }}>
                 <input
-                  id="manual-serial"
+                  id="input-serial-manual"
                   type="text"
-                  placeholder="Ej. PASS-TEST-001"
+                  placeholder="Ej. PASS-12345678"
                   value={scannedCode}
                   onChange={(e) => setScannedCode(e.target.value)}
                   style={{
@@ -273,16 +342,18 @@ export default function EscanearPage() {
                 <button
                   type="button"
                   id="btn-verificar-manual"
-                  onClick={() => scannedCode && handleCodeDetected(scannedCode)}
+                  onClick={() => handleCodeDetected(scannedCode.trim())}
+                  disabled={!scannedCode.trim()}
                   style={{
                     backgroundColor: theme.button.primaryBg,
                     color: theme.button.primaryText,
                     border: "none",
                     borderRadius: "8px",
                     padding: "10px 16px",
-                    fontSize: "13px",
-                    fontWeight: 700,
-                    cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: scannedCode.trim() ? "pointer" : "not-allowed",
+                    opacity: scannedCode.trim() ? 1 : 0.6,
                   }}
                 >
                   Verificar
@@ -292,7 +363,7 @@ export default function EscanearPage() {
           </div>
         )}
 
-        {/* PASO 2: VERIFICACIÓN VISUAL ANTI-FRAUDE */}
+        {/* PASO 2: VERIFICACIÓN VISUAL, SELLADO Y CANJE */}
         {step === "VERIFYING" && (
           <div>
             {verifyLoading ? (
@@ -339,19 +410,20 @@ export default function EscanearPage() {
               </div>
             ) : verification ? (
               <div>
+                {/* Tarjeta de cliente */}
                 <div
                   style={{
                     backgroundColor: theme.surface.light,
                     borderRadius: "12px",
-                    padding: "24px 20px",
+                    padding: "20px",
                     textAlign: "center",
-                    marginBottom: "20px",
+                    marginBottom: "16px",
                     border: `1px solid ${theme.colors.niebla}`,
                   }}
                 >
                   <span
                     style={{
-                      fontSize: "12px",
+                      fontSize: "11px",
                       color: theme.text.secondary,
                       textTransform: "uppercase",
                       letterSpacing: "0.05em",
@@ -363,10 +435,10 @@ export default function EscanearPage() {
                   <div
                     id="cliente-nombre-verificacion"
                     style={{
-                      fontSize: "30px",
+                      fontSize: "26px",
                       fontWeight: 800,
                       color: theme.text.onLight,
-                      margin: "12px 0 8px 0",
+                      margin: "8px 0",
                     }}
                   >
                     {verification.clienteNombre}
@@ -374,7 +446,7 @@ export default function EscanearPage() {
                   <p
                     style={{
                       margin: 0,
-                      fontSize: "13px",
+                      fontSize: "12px",
                       color: theme.text.secondary,
                     }}
                   >
@@ -382,28 +454,86 @@ export default function EscanearPage() {
                   </p>
                 </div>
 
+                {/* Saldo disponible y total */}
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "12px 16px",
-                    backgroundColor: "#FFFFFF",
-                    border: "1px solid #E2E8F0",
-                    borderRadius: "8px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "10px",
                     marginBottom: "20px",
-                    fontSize: "14px",
                   }}
                 >
-                  <span style={{ color: theme.text.secondary }}>
-                    Sellos acumulados:
-                  </span>
-                  <strong style={{ color: theme.text.onLight }}>
-                    {verification.sellosAcumulados}
-                  </strong>
+                  <div
+                    style={{
+                      padding: "14px",
+                      backgroundColor: "#F0FDF4",
+                      border: "1px solid #BBF7D0",
+                      borderRadius: "10px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "#166534",
+                        textTransform: "uppercase",
+                        display: "block",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      Saldo disponible
+                    </span>
+                    <strong
+                      id="saldo-disponible-sellos"
+                      style={{
+                        fontSize: "22px",
+                        fontWeight: 800,
+                        color: "#15803D",
+                      }}
+                    >
+                      {verification.saldoDisponible} sellos
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: "14px",
+                      backgroundColor: "#F8FAFC",
+                      border: "1px solid #E2E8F0",
+                      borderRadius: "10px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: theme.text.secondary,
+                        textTransform: "uppercase",
+                        display: "block",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      Total acumulado
+                    </span>
+                    <strong
+                      id="sellos-totales-acumulados"
+                      style={{
+                        fontSize: "22px",
+                        fontWeight: 800,
+                        color: theme.text.onLight,
+                      }}
+                    >
+                      {verification.sellosAcumulados}
+                    </strong>
+                  </div>
                 </div>
 
+                {/* Advertencia si ya alcanzó límite de sellos diarios */}
                 {verification.yaSelladoHoy && (
                   <div
+                    id="aviso-limite-diario"
                     style={{
                       padding: "12px 14px",
                       borderRadius: "8px",
@@ -411,22 +541,18 @@ export default function EscanearPage() {
                       color: "#92400E",
                       fontSize: "13px",
                       fontWeight: 600,
-                      marginBottom: "20px",
+                      marginBottom: "16px",
                       textAlign: "center",
                     }}
                   >
-                    Ya se sumó el sello de hoy para esta tarjeta. (Máximo 1
-                    sello por día).
+                    Límite diario alcanzado: ya se sumaron{" "}
+                    {verification.sellosHoy} de {verification.maxSellosPorDia}{" "}
+                    sello(s) permitido(s) hoy.
                   </div>
                 )}
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "10px",
-                  }}
-                >
+                {/* BOTÓN SUMAR SELLO */}
+                <div style={{ marginBottom: "24px" }}>
                   <button
                     type="button"
                     id="btn-confirmar-sello"
@@ -450,34 +576,316 @@ export default function EscanearPage() {
                       boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
                     }}
                   >
-                    {stampLoading ? "Guardando sello..." : "Confirmar sello"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    style={{
-                      width: "100%",
-                      backgroundColor: "transparent",
-                      color: theme.text.secondary,
-                      border: "1px solid #CBD5E1",
-                      borderRadius: "10px",
-                      padding: "12px",
-                      fontSize: "14px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cancelar y escanear otra
+                    {stampLoading ? "Sumando sello..." : "Sumar 1 sello"}
                   </button>
                 </div>
+
+                {/* SECCIÓN RECOMPENSAS CANJEABLES */}
+                <div
+                  id="seccion-recompensas-canjeables"
+                  style={{
+                    borderTop: `1px solid ${theme.colors.niebla}`,
+                    paddingTop: "20px",
+                    marginBottom: "20px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: "0 0 12px 0",
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: theme.text.onLight,
+                    }}
+                  >
+                    Recompensas canjeables
+                  </h3>
+
+                  {recompensasCanjeables.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "16px",
+                        backgroundColor: "#F8FAFC",
+                        borderRadius: "10px",
+                        border: "1px dashed #CBD5E1",
+                        textAlign: "center",
+                        fontSize: "13px",
+                        color: theme.text.secondary,
+                      }}
+                    >
+                      {verification.recompensas.length === 0
+                        ? "El comercio no tiene recompensas activas actualmente."
+                        : `El cliente no tiene sellos suficientes para canjear en este momento (mínimo ${recompensasFuturas[0]?.sellosRequeridos || 0} sellos).`}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                      }}
+                    >
+                      {recompensasCanjeables.map((r) => (
+                        <div
+                          key={r.id}
+                          id={`item-canjeable-${r.id}`}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "14px",
+                            backgroundColor: "#FFFFFF",
+                            border: `1.5px solid ${theme.accent.premium}`,
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 6px rgba(10, 37, 64, 0.04)",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "15px",
+                                fontWeight: 700,
+                                color: theme.text.onLight,
+                              }}
+                            >
+                              {r.nombre}
+                            </div>
+                            {r.descripcion && (
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  color: theme.text.secondary,
+                                  marginTop: "2px",
+                                }}
+                              >
+                                {r.descripcion}
+                              </div>
+                            )}
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                color: theme.accent.premium,
+                                marginTop: "4px",
+                              }}
+                            >
+                              Cuesta {r.sellosRequeridos} sellos
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            id={`btn-canjear-${r.id}`}
+                            onClick={() => setCanjeConfirm(r)}
+                            style={{
+                              backgroundColor: theme.colors.azulNoche,
+                              color: "#FFFFFF",
+                              border: "none",
+                              borderRadius: "8px",
+                              padding: "9px 16px",
+                              fontSize: "13px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Canjear
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recompensas no alcanzadas todavía */}
+                  {recompensasFuturas.length > 0 && (
+                    <div style={{ marginTop: "16px" }}>
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: theme.text.secondary,
+                          display: "block",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Próximas recompensas del catálogo:
+                      </span>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                        }}
+                      >
+                        {recompensasFuturas.map((r) => (
+                          <div
+                            key={r.id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              padding: "10px 12px",
+                              backgroundColor: "#F8FAFC",
+                              border: "1px solid #E2E8F0",
+                              borderRadius: "8px",
+                              opacity: 0.7,
+                            }}
+                          >
+                            <div>
+                              <span
+                                style={{
+                                  fontSize: "13px",
+                                  fontWeight: 600,
+                                  color: theme.text.onLight,
+                                }}
+                              >
+                                {r.nombre}
+                              </span>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                color: theme.text.secondary,
+                              }}
+                            >
+                              {r.sellosRequeridos} sellos (faltan{" "}
+                              {r.sellosRequeridos -
+                                verification.saldoDisponible}
+                              )
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cancelar escaneo */}
+                <button
+                  type="button"
+                  id="btn-cancelar-escaneo"
+                  onClick={handleReset}
+                  style={{
+                    width: "100%",
+                    backgroundColor: "transparent",
+                    color: theme.text.secondary,
+                    border: `1px solid ${theme.colors.niebla}`,
+                    borderRadius: "10px",
+                    padding: "12px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancelar y escanear otra
+                </button>
               </div>
             ) : null}
           </div>
         )}
 
-        {/* PASO 3: ÉXITO */}
-        {step === "SUCCESS" && stampResult && (
+        {/* MODAL DE CONFIRMACIÓN DE CANJE */}
+        {canjeConfirm && verification && (
+          <div
+            id="modal-confirmar-canje"
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(10, 37, 64, 0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "20px",
+              zIndex: 1000,
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: "380px",
+                backgroundColor: "#FFFFFF",
+                borderRadius: "16px",
+                padding: "28px 24px",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+                textAlign: "center",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 10px 0",
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                ¿Confirmar canje?
+              </h3>
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: theme.text.secondary,
+                  lineHeight: 1.5,
+                  margin: "0 0 20px 0",
+                }}
+              >
+                Vas a canjear <strong>{canjeConfirm.nombre}</strong> por{" "}
+                <strong>{canjeConfirm.sellosRequeridos} sellos</strong> para{" "}
+                <strong>{verification.clienteNombre}</strong>.
+              </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                <button
+                  type="button"
+                  id="btn-confirmar-canje"
+                  disabled={canjeLoading}
+                  onClick={handleConfirmarCanje}
+                  style={{
+                    backgroundColor: theme.colors.azulNoche,
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "14px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    cursor: canjeLoading ? "not-allowed" : "pointer",
+                    opacity: canjeLoading ? 0.7 : 1,
+                  }}
+                >
+                  {canjeLoading ? "Procesando canje..." : "Confirmar canje"}
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-cancelar-modal-canje"
+                  disabled={canjeLoading}
+                  onClick={() => setCanjeConfirm(null)}
+                  style={{
+                    backgroundColor: "transparent",
+                    color: theme.text.secondary,
+                    border: "none",
+                    padding: "10px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PASO 3A: ÉXITO SELLO */}
+        {step === "SUCCESS_STAMP" && stampResult && (
           <div style={{ textAlign: "center", padding: "16px 0" }}>
             <div
               style={{
@@ -524,13 +932,102 @@ export default function EscanearPage() {
                 marginBottom: "28px",
               }}
             >
-              Total acumulado:{" "}
-              <strong>{stampResult.sellosAcumulados} sellos</strong>
+              Saldo disponible:{" "}
+              <strong>
+                {stampResult.saldoDisponible ?? stampResult.sellosAcumulados}{" "}
+                sellos
+              </strong>
             </p>
 
             <button
               type="button"
               id="btn-escanear-siguiente"
+              onClick={handleReset}
+              style={{
+                width: "100%",
+                backgroundColor: theme.button.primaryBg,
+                color: theme.button.primaryText,
+                border: "none",
+                borderRadius: "10px",
+                padding: "14px",
+                fontSize: "15px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+              }}
+            >
+              Escanear siguiente tarjeta
+            </button>
+          </div>
+        )}
+
+        {/* PASO 3B: ÉXITO CANJE */}
+        {step === "SUCCESS_CANJE" && canjeResult && (
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            <div
+              style={{
+                width: "64px",
+                height: "64px",
+                borderRadius: "50%",
+                backgroundColor: "#DCFCE7",
+                color: "#166534",
+                fontSize: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 16px auto",
+                fontWeight: 700,
+              }}
+            >
+              🎁
+            </div>
+            <h2
+              id="confirmacion-canje"
+              style={{
+                margin: "0 0 8px 0",
+                fontSize: "24px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              ¡Canje exitoso!
+            </h2>
+            <p
+              style={{
+                fontSize: "18px",
+                fontWeight: 700,
+                color: theme.accent.premium,
+                margin: "0 0 6px 0",
+              }}
+            >
+              {canjeResult.recompensa}
+            </p>
+            <p
+              style={{
+                fontSize: "15px",
+                fontWeight: 600,
+                color: theme.text.onLight,
+                marginBottom: "8px",
+              }}
+            >
+              Cliente: {canjeResult.clienteNombre}
+            </p>
+            <p
+              style={{
+                fontSize: "14px",
+                color: theme.text.secondary,
+                marginBottom: "28px",
+              }}
+            >
+              Saldo restante:{" "}
+              <strong id="saldo-restante-canje">
+                {canjeResult.saldoRestante} sellos
+              </strong>
+            </p>
+
+            <button
+              type="button"
+              id="btn-escanear-siguiente-canje"
               onClick={handleReset}
               style={{
                 width: "100%",
