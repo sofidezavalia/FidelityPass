@@ -48,7 +48,13 @@ export async function POST(request: NextRequest) {
 
   // 3. Buscar comercio en la base de datos
   const [merchant] = await db
-    .select({ id: merchants.id, nombre: merchants.nombre })
+    .select({
+      id: merchants.id,
+      nombre: merchants.nombre,
+      logoUrl: merchants.logoUrl,
+      colorPrimario: merchants.colorPrimario,
+      colorSecundario: merchants.colorSecundario,
+    })
     .from(merchants)
     .where(eq(merchants.id, merchantId))
     .limit(1);
@@ -79,7 +85,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const { downloadUrl, applePassId } = await createApplePass(
-      { id: merchant.id, nombre: merchant.nombre },
+      {
+        id: merchant.id,
+        nombre: merchant.nombre,
+        logoUrl: merchant.logoUrl,
+        colorPrimario: merchant.colorPrimario,
+        colorSecundario: merchant.colorSecundario,
+      },
       { id: customer.id, nombre: customer.nombre },
       serialNumber,
     );

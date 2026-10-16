@@ -72,6 +72,9 @@ export const merchants = pgTable("merchants", {
   nombre: text("nombre").notNull(),
   tier: tierEnum("tier").notNull().default("basico"),
   emailContacto: text("email_contacto").notNull(),
+  logoUrl: text("logo_url"), // nullable; URL pública del logo
+  colorPrimario: text("color_primario"), // nullable; hex, ej. "#0A2540"
+  colorSecundario: text("color_secundario"), // nullable; hex
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

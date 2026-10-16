@@ -1,9 +1,10 @@
 "use client";
 
-import type {
-  DashboardResumen,
-  PaseListItem,
-  SelloListItem,
+import {
+  type DashboardResumen,
+  type PaseListItem,
+  personalizacionSchema,
+  type SelloListItem,
 } from "@fidelitypass/contracts";
 import { theme } from "@fidelitypass/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,13 @@ interface StaffResponse {
   staff: StaffItem[];
 }
 
+interface PersonalizacionResponse {
+  logoUrl: string;
+  colorPrimario: string;
+  colorSecundario: string;
+  isStorageConfigured: boolean;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -35,6 +43,20 @@ export default function PanelPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: session, isPending: sessionLoading } = authClient.useSession();
+
+  // Estados locales para personalización de tarjeta (PR-08)
+  const [logoUrl, setLogoUrl] = useState("");
+  const [colorPrimario, setColorPrimario] = useState<string>(
+    theme.colors.azulNoche,
+  );
+  const [colorSecundario, setColorSecundario] = useState<string>(
+    theme.colors.celesteBandera,
+  );
+  const [isStorageEnabled, setIsStorageEnabled] = useState(false);
+  const [savingPersonalizacion, setSavingPersonalizacion] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [personalizacionError, setPersonalizacionError] = useState("");
+  const [personalizacionSuccess, setPersonalizacionSuccess] = useState("");
 
   // Estados locales para el alta de empleados y QR
   const [nombreStaff, setNombreStaff] = useState("");
@@ -89,6 +111,116 @@ export default function PanelPage() {
       queryKey: ["panel", "staff"],
       queryFn: () => fetchJson<StaffResponse>("/api/staff"),
     });
+
+  // 5. Personalización de tarjeta (logo y colores)
+  const { data: personalizacionData } = useQuery<PersonalizacionResponse>({
+    queryKey: ["merchant", "personalizar"],
+    queryFn: () =>
+      fetchJson<PersonalizacionResponse>("/api/merchants/personalizar"),
+  });
+
+  useEffect(() => {
+    if (personalizacionData) {
+      if (personalizacionData.logoUrl) setLogoUrl(personalizacionData.logoUrl);
+      if (personalizacionData.colorPrimario)
+        setColorPrimario(personalizacionData.colorPrimario);
+      if (personalizacionData.colorSecundario)
+        setColorSecundario(personalizacionData.colorSecundario);
+      setIsStorageEnabled(Boolean(personalizacionData.isStorageConfigured));
+    }
+  }, [personalizacionData]);
+
+  const handleGuardarPersonalizacion = async (e: FormEvent) => {
+    e.preventDefault();
+    setPersonalizacionError("");
+    setPersonalizacionSuccess("");
+
+    const validation = personalizacionSchema.safeParse({
+      logoUrl: logoUrl.trim(),
+      colorPrimario: colorPrimario.trim(),
+      colorSecundario: colorSecundario.trim(),
+    });
+
+    if (!validation.success) {
+      setPersonalizacionError(
+        validation.error.issues[0]?.message ||
+          "Datos de personalización inválidos",
+      );
+      return;
+    }
+
+    setSavingPersonalizacion(true);
+
+    try {
+      const res = await fetch("/api/merchants/personalizar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validation.data),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPersonalizacionError(
+          data.error || "Error al guardar la personalización.",
+        );
+        return;
+      }
+
+      setPersonalizacionSuccess("Personalización guardada con éxito.");
+      queryClient.invalidateQueries({ queryKey: ["merchant", "personalizar"] });
+      setTimeout(() => setPersonalizacionSuccess(""), 4000);
+    } catch {
+      setPersonalizacionError(
+        "Error de conexión al guardar la personalización.",
+      );
+    } finally {
+      setSavingPersonalizacion(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!isStorageEnabled) {
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setPersonalizacionError(
+        "El archivo supera el tamaño máximo permitido (2 MB).",
+      );
+      return;
+    }
+
+    setUploadingLogo(true);
+    setPersonalizacionError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/merchants/personalizar/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPersonalizacionError(data.error || "Error al subir el logo");
+        return;
+      }
+
+      setLogoUrl(data.logoUrl);
+      setPersonalizacionSuccess(
+        "Logo subido correctamente. Guardá para aplicar los cambios.",
+      );
+    } catch {
+      setPersonalizacionError("Error de conexión al subir el logo.");
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await authClient.signOut({
@@ -396,6 +528,490 @@ export default function PanelPage() {
                 : resumenError
                   ? "-"
                   : (resumen?.sellosTotal ?? 0)}
+            </div>
+          </div>
+        </section>
+
+        {/* SECCIÓN: PERSONALIZAR TARJETA (PR-08) */}
+        <section
+          id="seccion-personalizar-tarjeta"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          <div style={{ marginBottom: "24px" }}>
+            <div
+              style={{
+                display: "inline-block",
+                padding: "3px 10px",
+                borderRadius: "12px",
+                backgroundColor: `${theme.accent.premium}1A`,
+                color: theme.accent.premium,
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Identidad de Marca
+            </div>
+            <h2
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "20px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              Personalizar tarjeta
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                color: theme.text.secondary,
+              }}
+            >
+              Elegí el logo y los colores que verán tus clientes en Google
+              Wallet y Apple Wallet.
+            </p>
+          </div>
+
+          {personalizacionError && (
+            <div
+              id="error-personalizacion"
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                backgroundColor: "#FEE2E2",
+                color: "#991B1B",
+                fontSize: "13px",
+                fontWeight: 600,
+                marginBottom: "20px",
+              }}
+            >
+              {personalizacionError}
+            </div>
+          )}
+
+          {personalizacionSuccess && (
+            <div
+              id="success-personalizacion"
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                backgroundColor: "#DCFCE7",
+                color: "#166534",
+                fontSize: "13px",
+                fontWeight: 600,
+                marginBottom: "20px",
+              }}
+            >
+              {personalizacionSuccess}
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: "32px",
+              alignItems: "start",
+            }}
+          >
+            {/* Formulario de Configuración */}
+            <form onSubmit={handleGuardarPersonalizacion}>
+              {/* Logo Upload & URL */}
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="input-logo-file"
+                  style={{
+                    display: "block",
+                    marginBottom: "6px",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                  }}
+                >
+                  Logo del comercio
+                </label>
+                <div style={{ marginBottom: "10px" }}>
+                  <input
+                    type="file"
+                    id="input-logo-file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    disabled={!isStorageEnabled || uploadingLogo}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      fontSize: "13px",
+                      color: theme.text.secondary,
+                      opacity: !isStorageEnabled ? 0.6 : 1,
+                      cursor: !isStorageEnabled ? "not-allowed" : "pointer",
+                    }}
+                  />
+                  {!isStorageEnabled && (
+                    <span
+                      id="msg-storage-disabled"
+                      style={{
+                        display: "block",
+                        fontSize: "12px",
+                        color: "#DC2626",
+                        marginTop: "4px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      El upload se habilita cuando se configure el
+                      almacenamiento
+                    </span>
+                  )}
+                  {uploadingLogo && (
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: theme.button.primaryBg,
+                        display: "block",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Subiendo logo a storage...
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="url"
+                    id="input-logo-url"
+                    placeholder="O ingresá URL pública (ej. https://...)"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #CBD5E1",
+                      fontSize: "13px",
+                      color: theme.text.onLight,
+                      outline: "none",
+                    }}
+                  />
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl("")}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #CBD5E1",
+                        backgroundColor: "#FFFFFF",
+                        color: theme.text.secondary,
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Color Pickers */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "16px",
+                  marginBottom: "24px",
+                }}
+              >
+                <div>
+                  <label
+                    htmlFor="color-primario"
+                    style={{
+                      display: "block",
+                      marginBottom: "6px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: theme.text.onLight,
+                    }}
+                  >
+                    Color fondo
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <input
+                      type="color"
+                      id="color-primario"
+                      value={colorPrimario}
+                      onChange={(e) => setColorPrimario(e.target.value)}
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "8px",
+                        border: "1px solid #CBD5E1",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "monospace",
+                        color: theme.text.secondary,
+                      }}
+                    >
+                      {colorPrimario}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="color-secundario"
+                    style={{
+                      display: "block",
+                      marginBottom: "6px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: theme.text.onLight,
+                    }}
+                  >
+                    Color detalles
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <input
+                      type="color"
+                      id="color-secundario"
+                      value={colorSecundario}
+                      onChange={(e) => setColorSecundario(e.target.value)}
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "8px",
+                        border: "1px solid #CBD5E1",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontFamily: "monospace",
+                        color: theme.text.secondary,
+                      }}
+                    >
+                      {colorSecundario}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                id="btn-guardar-personalizacion"
+                disabled={savingPersonalizacion}
+                style={{
+                  backgroundColor: theme.button.primaryBg,
+                  color: theme.button.primaryText,
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "12px 24px",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: savingPersonalizacion ? "not-allowed" : "pointer",
+                  opacity: savingPersonalizacion ? 0.7 : 1,
+                  boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+                }}
+              >
+                {savingPersonalizacion
+                  ? "Guardando..."
+                  : "Guardar personalización"}
+              </button>
+            </form>
+
+            {/* Vista Previa en Vivo */}
+            <div>
+              <div
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.secondary,
+                  marginBottom: "8px",
+                }}
+              >
+                Vista previa en vivo
+              </div>
+
+              <div
+                id="mock-tarjeta-preview"
+                style={{
+                  backgroundColor: colorPrimario || theme.colors.azulNoche,
+                  borderRadius: "16px",
+                  padding: "24px 20px",
+                  boxShadow: "0 15px 30px -10px rgba(10, 37, 64, 0.25)",
+                  color: theme.colors.niebla,
+                  border: `2px solid ${colorSecundario || theme.colors.celesteBandera}`,
+                  position: "relative",
+                  overflow: "hidden",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "18px",
+                  }}
+                >
+                  <div>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        color: colorSecundario || theme.colors.celesteBandera,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Tarjeta de Fidelidad
+                    </span>
+                    <h3
+                      style={{
+                        margin: "4px 0 0 0",
+                        fontSize: "18px",
+                        fontWeight: 700,
+                        color: "#FFFFFF",
+                      }}
+                    >
+                      {nombreComercio}
+                    </h3>
+                  </div>
+
+                  {logoUrl ? (
+                    /* biome-ignore lint/performance/noImgElement: Previsualización de logo en panel */
+                    <img
+                      src={logoUrl}
+                      alt="Logo del comercio"
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "8px",
+                        objectFit: "cover",
+                        backgroundColor: "#FFFFFF",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "8px",
+                        backgroundColor: "rgba(255,255,255,0.1)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: colorSecundario || theme.colors.celesteBandera,
+                      }}
+                    >
+                      LOGO
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.08)",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    marginBottom: "18px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "rgba(248, 250, 252, 0.7)",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    TITULAR
+                  </div>
+                  <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                    Sofía de Zavalía
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderTop: "1px dashed rgba(255,255,255,0.2)",
+                    paddingTop: "14px",
+                  }}
+                >
+                  <div>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: "rgba(248, 250, 252, 0.7)",
+                      }}
+                    >
+                      BALANCE
+                    </span>
+                    <div
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: 700,
+                        color: colorSecundario || theme.colors.celesteBandera,
+                      }}
+                    >
+                      0 Sellos
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                      backgroundColor: "rgba(255,255,255,0.15)",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    [ QR SCAN ]
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
