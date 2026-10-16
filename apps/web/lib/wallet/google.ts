@@ -27,6 +27,7 @@ export interface MerchantPassData {
   colorPrimario?: string | null;
   colorSecundario?: string | null;
   logoUrl?: string | null;
+  heroImageUrl?: string | null;
 }
 
 export interface CustomerPassData {
@@ -42,6 +43,11 @@ export interface IssuedPassResult {
 
 /**
  * Genera la definición de la clase (programa de fidelidad del comercio)
+ * Formato exacto Google Wallet LoyaltyClass:
+ * - programName = nombre del comercio
+ * - hexBackgroundColor = colorPrimario del comercio (fallback al theme)
+ * - programLogo = logoUrl del comercio
+ * - heroImage opcional (banner 3:1)
  */
 export function getOrCreateClass(merchant: MerchantPassData) {
   const issuerId = env.GOOGLE_WALLET_ISSUER_ID || "ISSUER_UNSET";
@@ -51,7 +57,7 @@ export function getOrCreateClass(merchant: MerchantPassData) {
   const loyaltyClass: Record<string, unknown> = {
     id: classId,
     issuerName: merchant.nombre,
-    programName: `Fidelidad ${merchant.nombre}`,
+    programName: merchant.nombre,
     reviewStatus: "UNDER_REVIEW",
     hexBackgroundColor,
   };
@@ -64,15 +70,29 @@ export function getOrCreateClass(merchant: MerchantPassData) {
     };
   }
 
+  if (merchant.heroImageUrl) {
+    loyaltyClass.heroImage = {
+      sourceUri: {
+        uri: merchant.heroImageUrl,
+      },
+    };
+  }
+
   return loyaltyClass;
 }
 
 /**
  * Emite el pase para el cliente, generando el objeto y el JWT firmado para guardar en Google Wallet
+ * Formato exacto Google Wallet LoyaltyObject:
+ * - balance de puntos = "<n> sellos"
+ * - nombre del titular visible = nombre del cliente (anti-fraude)
+ * - filas extra (textModulesData) con la próxima recompensa (placeholder)
+ * - barcode QR = serialNumber
  */
 export function issuePass(
   merchant: MerchantPassData,
   customer: CustomerPassData,
+  sellos = 0,
 ): IssuedPassResult {
   if (!isGoogleWalletConfigured()) {
     throw new Error(
@@ -92,31 +112,31 @@ export function issuePass(
   const serialNumber = crypto.randomUUID();
   const classId = `${issuerId}.${merchant.id}`;
   const googleWalletObjectId = `${issuerId}.${serialNumber}`;
-  const hexBackgroundColor = merchant.colorPrimario || colors.azulNoche;
 
-  const loyaltyClass: Record<string, unknown> = {
-    id: classId,
-    issuerName: merchant.nombre,
-    programName: `Fidelidad ${merchant.nombre}`,
-    reviewStatus: "UNDER_REVIEW",
-    hexBackgroundColor,
-  };
+  const loyaltyClass = getOrCreateClass(merchant);
 
-  if (merchant.logoUrl) {
-    loyaltyClass.programLogo = {
-      sourceUri: {
-        uri: merchant.logoUrl,
-      },
-    };
-  }
-
-  const loyaltyObject = {
+  const loyaltyObject: Record<string, unknown> = {
     id: googleWalletObjectId,
     classId: classId,
     state: "ACTIVE",
     // Anti-fraude: nombre del titular visible en el pase
     accountName: customer.nombre,
     accountId: customer.id,
+    // Balance de puntos = "<n> sellos"
+    loyaltyPoints: {
+      label: "Sellos",
+      balance: {
+        string: `${sellos} sellos`,
+      },
+    },
+    // Filas extra con la próxima recompensa (placeholder)
+    textModulesData: [
+      {
+        id: "proxima_recompensa",
+        header: "Próxima recompensa",
+        body: "Consultá en el comercio tus recompensas disponibles",
+      },
+    ],
     // Código de barras QR con valor = serialNumber (que escanea la PR-06)
     barcode: {
       type: "QR_CODE",

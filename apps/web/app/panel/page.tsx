@@ -92,11 +92,25 @@ export default function PanelPage() {
   const [copiedPassLink, setCopiedPassLink] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [origin, setOrigin] = useState("");
+  const [walletPreviewTab, setWalletPreviewTab] = useState<
+    "ambas" | "apple" | "google"
+  >("ambas");
+  const [sampleQrDataUrl, setSampleQrDataUrl] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
     }
+    QRCode.toDataURL("FID-SAMPLE-001", {
+      width: 140,
+      margin: 1,
+      color: {
+        dark: "#0A2540",
+        light: "#FFFFFF",
+      },
+    })
+      .then(setSampleQrDataUrl)
+      .catch(() => {});
   }, []);
 
   // 1. Resumen de métricas
@@ -1126,162 +1140,615 @@ export default function PanelPage() {
               </button>
             </form>
 
-            {/* Vista Previa en Vivo */}
-            <div>
+            {/* Vistas Previas en Vivo (PR-12: estructura nativa de cada wallet) */}
+            <div id="mock-tarjeta-preview">
               <div
                 style={{
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  color: theme.text.secondary,
-                  marginBottom: "8px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "12px",
+                  flexWrap: "wrap",
+                  gap: "8px",
                 }}
               >
-                Vista previa en vivo
+                <div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: theme.text.onLight,
+                    }}
+                  >
+                    Vistas previas en vivo
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: theme.text.secondary,
+                    }}
+                  >
+                    Estructura nativa oficial de cada plataforma
+                  </div>
+                </div>
+
+                {/* Tabs selector */}
+                <div
+                  style={{
+                    display: "flex",
+                    backgroundColor: "#F1F5F9",
+                    borderRadius: "8px",
+                    padding: "2px",
+                    gap: "2px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    id="btn-tab-preview-ambas"
+                    onClick={() => setWalletPreviewTab("ambas")}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      backgroundColor:
+                        walletPreviewTab === "ambas"
+                          ? "#FFFFFF"
+                          : "transparent",
+                      color:
+                        walletPreviewTab === "ambas"
+                          ? theme.text.onLight
+                          : theme.text.secondary,
+                      boxShadow:
+                        walletPreviewTab === "ambas"
+                          ? "0 1px 3px rgba(0,0,0,0.1)"
+                          : "none",
+                    }}
+                  >
+                    Ambas
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-tab-preview-apple"
+                    onClick={() => setWalletPreviewTab("apple")}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      backgroundColor:
+                        walletPreviewTab === "apple"
+                          ? "#FFFFFF"
+                          : "transparent",
+                      color:
+                        walletPreviewTab === "apple"
+                          ? theme.text.onLight
+                          : theme.text.secondary,
+                      boxShadow:
+                        walletPreviewTab === "apple"
+                          ? "0 1px 3px rgba(0,0,0,0.1)"
+                          : "none",
+                    }}
+                  >
+                    Apple Wallet
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-tab-preview-google"
+                    onClick={() => setWalletPreviewTab("google")}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      backgroundColor:
+                        walletPreviewTab === "google"
+                          ? "#FFFFFF"
+                          : "transparent",
+                      color:
+                        walletPreviewTab === "google"
+                          ? theme.text.onLight
+                          : theme.text.secondary,
+                      boxShadow:
+                        walletPreviewTab === "google"
+                          ? "0 1px 3px rgba(0,0,0,0.1)"
+                          : "none",
+                    }}
+                  >
+                    Google Wallet
+                  </button>
+                </div>
               </div>
 
               <div
-                id="mock-tarjeta-preview"
                 style={{
-                  backgroundColor: colorPrimario || theme.colors.azulNoche,
-                  borderRadius: "16px",
-                  padding: "24px 20px",
-                  boxShadow: "0 15px 30px -10px rgba(10, 37, 64, 0.25)",
-                  color: theme.colors.niebla,
-                  border: `2px solid ${colorSecundario || theme.colors.celesteBandera}`,
-                  position: "relative",
-                  overflow: "hidden",
-                  transition: "all 0.2s ease",
+                  display: "grid",
+                  gridTemplateColumns:
+                    walletPreviewTab === "ambas"
+                      ? "repeat(auto-fit, minmax(280px, 1fr))"
+                      : "1fr",
+                  gap: "20px",
+                  alignItems: "start",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "18px",
-                  }}
-                >
+                {/* 1. VISTA APPLE WALLET (storeCard) */}
+                {(walletPreviewTab === "ambas" ||
+                  walletPreviewTab === "apple") && (
                   <div>
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.08em",
-                        color: colorSecundario || theme.colors.celesteBandera,
-                        fontWeight: 700,
-                      }}
-                    >
-                      Tarjeta de Fidelidad
-                    </span>
-                    <h3
-                      style={{
-                        margin: "4px 0 0 0",
-                        fontSize: "18px",
-                        fontWeight: 700,
-                        color: "#FFFFFF",
-                      }}
-                    >
-                      {nombreComercio}
-                    </h3>
-                  </div>
-
-                  {logoUrl ? (
-                    /* biome-ignore lint/performance/noImgElement: Previsualización de logo en panel */
-                    <img
-                      src={logoUrl}
-                      alt="Logo del comercio"
-                      style={{
-                        width: "44px",
-                        height: "44px",
-                        borderRadius: "8px",
-                        objectFit: "cover",
-                        backgroundColor: "#FFFFFF",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                      }}
-                    />
-                  ) : (
                     <div
                       style={{
-                        width: "44px",
-                        height: "44px",
-                        borderRadius: "8px",
-                        backgroundColor: "rgba(255,255,255,0.1)",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        color: colorSecundario || theme.colors.celesteBandera,
+                        gap: "6px",
+                        marginBottom: "6px",
                       }}
                     >
-                      LOGO
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        Apple Wallet (storeCard)
+                      </span>
                     </div>
-                  )}
-                </div>
 
-                <div
-                  style={{
-                    backgroundColor: "rgba(255,255,255,0.08)",
-                    borderRadius: "10px",
-                    padding: "12px 14px",
-                    marginBottom: "18px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "rgba(248, 250, 252, 0.7)",
-                      marginBottom: "2px",
-                    }}
-                  >
-                    TITULAR
-                  </div>
-                  <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                    Sofía de Zavalía
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    borderTop: "1px dashed rgba(255,255,255,0.2)",
-                    paddingTop: "14px",
-                  }}
-                >
-                  <div>
-                    <span
+                    <div
+                      id="preview-apple-wallet"
                       style={{
-                        fontSize: "11px",
-                        color: "rgba(248, 250, 252, 0.7)",
+                        backgroundColor:
+                          colorPrimario || theme.colors.azulNoche,
+                        borderRadius: "16px",
+                        padding: "20px 18px",
+                        boxShadow: "0 12px 28px rgba(10, 37, 64, 0.18)",
+                        color: "#FFFFFF",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        position: "relative",
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: "450px",
+                        transition: "all 0.2s ease",
                       }}
                     >
-                      BALANCE
-                    </span>
+                      {/* Header storeCard: Logo (160x50) arriba izquierda | SELLOS / 5 arriba derecha */}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          marginBottom: "24px",
+                        }}
+                      >
+                        <div style={{ maxWidth: "150px" }}>
+                          {logoUrl ? (
+                            /* biome-ignore lint/performance/noImgElement: Previsualización de logo en panel */
+                            <img
+                              src={logoUrl}
+                              alt="Logo comercio"
+                              style={{
+                                width: "130px",
+                                height: "40px",
+                                objectFit: "contain",
+                                display: "block",
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: 700,
+                                color: "#FFFFFF",
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {nombreComercio}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ textAlign: "right" }}>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              color:
+                                colorSecundario || theme.colors.celesteBandera,
+                            }}
+                          >
+                            SELLOS
+                          </span>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "26px",
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              color: "#FFFFFF",
+                              marginTop: "2px",
+                            }}
+                          >
+                            5
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Primary field: Nombre del cliente (visible — anti-fraude) */}
+                      <div style={{ marginBottom: "18px" }}>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            color:
+                              colorSecundario || theme.colors.celesteBandera,
+                            opacity: 0.9,
+                          }}
+                        >
+                          TITULAR
+                        </span>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "20px",
+                            fontWeight: 700,
+                            color: "#FFFFFF",
+                            marginTop: "2px",
+                          }}
+                        >
+                          Sofía de Zavalía
+                        </span>
+                      </div>
+
+                      {/* Secondary field: Próxima recompensa (placeholder PR-09) */}
+                      <div style={{ marginBottom: "20px" }}>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            color:
+                              colorSecundario || theme.colors.celesteBandera,
+                            opacity: 0.9,
+                          }}
+                        >
+                          PRÓXIMA RECOMPENSA
+                        </span>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: "#FFFFFF",
+                            marginTop: "2px",
+                          }}
+                        >
+                          Café gratis (10 sellos)
+                        </span>
+                      </div>
+
+                      {/* Barcode QR zone con serialNumber abajo */}
+                      <div style={{ marginTop: "auto", paddingTop: "14px" }}>
+                        <div
+                          style={{
+                            backgroundColor: "#FFFFFF",
+                            borderRadius: "10px",
+                            padding: "10px",
+                            textAlign: "center",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                        >
+                          {sampleQrDataUrl ? (
+                            /* biome-ignore lint/performance/noImgElement: QR preview */
+                            <img
+                              src={sampleQrDataUrl}
+                              alt="QR de ejemplo"
+                              style={{
+                                width: "105px",
+                                height: "105px",
+                                display: "inline-block",
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: "105px",
+                                height: "105px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                backgroundColor: "#F1F5F9",
+                                color: "#64748B",
+                                fontSize: "11px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              [ QR ]
+                            </div>
+                          )}
+                          <div
+                            style={{
+                              fontSize: "10px",
+                              fontFamily: "monospace",
+                              color: "#475569",
+                              marginTop: "4px",
+                            }}
+                          >
+                            FID-SAMPLE-001
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. VISTA GOOGLE WALLET (loyalty) */}
+                {(walletPreviewTab === "ambas" ||
+                  walletPreviewTab === "google") && (
+                  <div>
                     <div
                       style={{
-                        fontSize: "15px",
-                        fontWeight: 700,
-                        color: colorSecundario || theme.colors.celesteBandera,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        marginBottom: "6px",
                       }}
                     >
-                      0 Sellos
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        Google Wallet (loyalty)
+                      </span>
+                    </div>
+
+                    <div
+                      id="preview-google-wallet"
+                      style={{
+                        backgroundColor:
+                          colorPrimario || theme.colors.azulNoche,
+                        borderRadius: "24px",
+                        padding: "20px 18px",
+                        boxShadow: "0 12px 28px rgba(10, 37, 64, 0.18)",
+                        color: "#FFFFFF",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        position: "relative",
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: "450px",
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      {/* Header loyalty: Logo circular a la izquierda + nombre del comercio */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          marginBottom: "18px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "38px",
+                            height: "38px",
+                            borderRadius: "50%",
+                            backgroundColor: "#FFFFFF",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                            boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {logoUrl ? (
+                            /* biome-ignore lint/performance/noImgElement: Previsualización de logo en panel */
+                            <img
+                              src={logoUrl}
+                              alt="Logo circular"
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
+                            />
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: "15px",
+                                fontWeight: 700,
+                                color: colorPrimario || theme.colors.azulNoche,
+                              }}
+                            >
+                              {(nombreComercio || "F")[0]?.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            marginLeft: "12px",
+                            fontSize: "15px",
+                            fontWeight: 600,
+                            color: "#FFFFFF",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {nombreComercio}
+                        </span>
+                      </div>
+
+                      {/* Balance de puntos: "5 sellos" */}
+                      <div style={{ marginBottom: "16px" }}>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            color:
+                              colorSecundario || theme.colors.celesteBandera,
+                            opacity: 0.9,
+                          }}
+                        >
+                          BALANCE DE PUNTOS
+                        </span>
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: "28px",
+                            fontWeight: 700,
+                            color: "#FFFFFF",
+                            marginTop: "2px",
+                            lineHeight: 1.1,
+                          }}
+                        >
+                          5 sellos
+                        </span>
+                      </div>
+
+                      {/* Filas de ejemplo (textModulesData) */}
+                      <div
+                        style={{
+                          borderTop: "1px solid rgba(255,255,255,0.15)",
+                          paddingTop: "8px",
+                          paddingBottom: "8px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color:
+                              colorSecundario || theme.colors.celesteBandera,
+                            opacity: 0.9,
+                          }}
+                        >
+                          Titular
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: "#FFFFFF",
+                          }}
+                        >
+                          Sofía de Zavalía
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          borderTop: "1px solid rgba(255,255,255,0.15)",
+                          borderBottom: "1px solid rgba(255,255,255,0.15)",
+                          paddingTop: "8px",
+                          paddingBottom: "8px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color:
+                              colorSecundario || theme.colors.celesteBandera,
+                            opacity: 0.9,
+                          }}
+                        >
+                          Próxima recompensa
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: "#FFFFFF",
+                          }}
+                        >
+                          Café gratis (10 sellos)
+                        </span>
+                      </div>
+
+                      {/* Barcode QR zone Google Wallet */}
+                      <div style={{ marginTop: "auto", paddingTop: "14px" }}>
+                        <div
+                          style={{
+                            backgroundColor: "#FFFFFF",
+                            borderRadius: "12px",
+                            padding: "10px",
+                            textAlign: "center",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                        >
+                          {sampleQrDataUrl ? (
+                            /* biome-ignore lint/performance/noImgElement: QR preview */
+                            <img
+                              src={sampleQrDataUrl}
+                              alt="QR de ejemplo"
+                              style={{
+                                width: "105px",
+                                height: "105px",
+                                display: "inline-block",
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: "105px",
+                                height: "105px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                backgroundColor: "#F1F5F9",
+                                color: "#64748B",
+                                fontSize: "11px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              [ QR ]
+                            </div>
+                          )}
+                          <div
+                            style={{
+                              fontSize: "10px",
+                              fontFamily: "monospace",
+                              color: "#475569",
+                              marginTop: "4px",
+                            }}
+                          >
+                            FID-SAMPLE-001
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: "6px",
-                      backgroundColor: "rgba(255,255,255,0.15)",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    [ QR SCAN ]
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
