@@ -10,6 +10,7 @@ function NuevoPaseForm() {
   const merchantId = searchParams.get("c");
 
   const [merchantName, setMerchantName] = useState<string>("");
+  const [appleWalletEnabled, setAppleWalletEnabled] = useState(false);
   const [fetchingMerchant, setFetchingMerchant] = useState(true);
   const [merchantNotFound, setMerchantNotFound] = useState(false);
 
@@ -32,6 +33,7 @@ function NuevoPaseForm() {
       })
       .then((data) => {
         setMerchantName(data.nombre);
+        setAppleWalletEnabled(Boolean(data.isAppleWalletConfigured));
         setFetchingMerchant(false);
       })
       .catch(() => {
@@ -298,35 +300,37 @@ function NuevoPaseForm() {
               : "Guardar en Google Wallet"}
           </button>
 
-          {/* Botón Apple Wallet */}
-          <button
-            type="button"
-            id="btn-guardar-apple-wallet"
-            onClick={() => handleEmitirPase("apple")}
-            disabled={loadingWallet !== null}
-            style={{
-              width: "100%",
-              backgroundColor: theme.colors.azulNoche,
-              color: "#FFFFFF",
-              border: "none",
-              borderRadius: "12px",
-              padding: "15px 16px",
-              fontSize: "15px",
-              fontWeight: 700,
-              cursor: loadingWallet !== null ? "not-allowed" : "pointer",
-              opacity: loadingWallet !== null ? 0.7 : 1,
-              boxShadow: "0 4px 12px rgba(10, 37, 64, 0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              transition: "transform 0.15s ease",
-            }}
-          >
-            {loadingWallet === "apple"
-              ? "Generando pase..."
-              : "Agregar a Apple Wallet"}
-          </button>
+          {/* Botón Apple Wallet (solo si isAppleWalletConfigured) */}
+          {appleWalletEnabled && (
+            <button
+              type="button"
+              id="btn-guardar-apple-wallet"
+              onClick={() => handleEmitirPase("apple")}
+              disabled={loadingWallet !== null}
+              style={{
+                width: "100%",
+                backgroundColor: theme.colors.azulNoche,
+                color: "#FFFFFF",
+                border: "none",
+                borderRadius: "12px",
+                padding: "15px 16px",
+                fontSize: "15px",
+                fontWeight: 700,
+                cursor: loadingWallet !== null ? "not-allowed" : "pointer",
+                opacity: loadingWallet !== null ? 0.7 : 1,
+                boxShadow: "0 4px 12px rgba(10, 37, 64, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                transition: "transform 0.15s ease",
+              }}
+            >
+              {loadingWallet === "apple"
+                ? "Generando pase..."
+                : "Agregar a Apple Wallet"}
+            </button>
+          )}
         </div>
       </div>
     </div>

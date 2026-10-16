@@ -1,14 +1,14 @@
 import { mensajeSelloSchema } from "@fidelitypass/contracts";
 import jwt from "jsonwebtoken";
 import { env } from "../env";
-import { updateApplePassStamps } from "./apple";
+import { pushStampsUpdate } from "./apple";
 import { isGoogleWalletConfigured } from "./google";
 
 export interface NotifyStampAddedArgs {
   merchantNombre: string;
   sellosAcumulados: number;
   googleWalletObjectId?: string | null;
-  applePassId?: string | null;
+  serialNumber?: string | null;
 }
 
 /**
@@ -105,7 +105,7 @@ export async function notifyStampAdded(
     merchantNombre,
     sellosAcumulados,
     googleWalletObjectId,
-    applePassId,
+    serialNumber,
   } = args;
 
   // 1. Armamos y validamos el mensaje en el servidor
@@ -130,17 +130,13 @@ export async function notifyStampAdded(
     }
   }
 
-  // 3. Apple Wallet: el mensaje viaja en la actualización del pase vía proveedor
-  if (applePassId) {
+  // 3. Apple Wallet: notifica a los dispositivos registrados en apple_devices
+  if (serialNumber) {
     try {
-      await updateApplePassStamps(
-        applePassId,
-        sellosAcumulados,
-        mensaje.cuerpo,
-      );
+      await pushStampsUpdate(serialNumber, sellosAcumulados, mensaje.cuerpo);
     } catch (err) {
       console.error(
-        `[Push Apple Wallet] Error al notificar pase ${applePassId}:`,
+        `[Push Apple Wallet] Error al notificar pase ${serialNumber}:`,
         err,
       );
     }

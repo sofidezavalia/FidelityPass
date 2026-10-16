@@ -6,11 +6,8 @@ import {
 import { customers, db, merchants, passes } from "@fidelitypass/db";
 import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import {
-  AppleWalletNoConfiguradoError,
-  createApplePass,
-  isAppleWalletConfigured,
-} from "../../../../lib/wallet/apple";
+import { env } from "../../../../lib/env";
+import { isAppleWalletConfigured } from "../../../../lib/wallet/apple";
 
 /**
  * POST /api/pases/emitir-apple (público)
@@ -38,7 +35,7 @@ export async function POST(request: NextRequest) {
 
   const { merchantId, nombreCliente } = validation.data;
 
-  // 2. Patrón "integración dormida": si la API key no está presente, 503 sin tocar la DB
+  // 2. Patrón "integración dormida": si las 4 variables de Apple no están presentes, 503 sin tocar la DB
   if (!isAppleWalletConfigured()) {
     return NextResponse.json(
       { error: "Apple Wallet no está configurado todavía" },
@@ -80,44 +77,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 5. Generar serialNumber (compartido y compatible con escáner PR-06) y llamar al proveedor de Apple Wallet
+  // 5. Generar serialNumber (compartido con escáner) y appleAuthToken para el webService de Apple
   const serialNumber = crypto.randomUUID();
+  const appleAuthToken = crypto.randomBytes(16).toString("hex");
 
-  try {
-    const { downloadUrl, applePassId } = await createApplePass(
-      {
-        id: merchant.id,
-        nombre: merchant.nombre,
-        logoUrl: merchant.logoUrl,
-        colorPrimario: merchant.colorPrimario,
-        colorSecundario: merchant.colorSecundario,
-      },
-      { id: customer.id, nombre: customer.nombre },
-      serialNumber,
-    );
+  // 6. Guardar pase en la DB
+  await db.insert(passes).values({
+    merchantId: merchant.id,
+    customerId: customer.id,
+    serialNumber,
+    appleAuthToken,
+    estado: "activa",
+  });
 
-    // 6. Guardar pase en la DB
-    await db.insert(passes).values({
-      merchantId: merchant.id,
-      customerId: customer.id,
-      serialNumber,
-      applePassId,
-      estado: "activa",
-    });
+  const downloadUrl = `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/api/pases/apple/${serialNumber}/download`;
 
-    const responsePayload = applePassResultSchema.parse({ downloadUrl });
-    return NextResponse.json(responsePayload, { status: 201 });
-  } catch (error) {
-    if (error instanceof AppleWalletNoConfiguradoError) {
-      return NextResponse.json(
-        { error: "Apple Wallet no está configurado todavía" },
-        { status: 503 },
-      );
-    }
-    console.error("Error al emitir pase para Apple Wallet:", error);
-    return NextResponse.json(
-      { error: "No se pudo generar el pase de Apple Wallet en este momento" },
-      { status: 502 },
-    );
-  }
+  const responsePayload = applePassResultSchema.parse({ downloadUrl });
+  return NextResponse.json(responsePayload, { status: 201 });
 }

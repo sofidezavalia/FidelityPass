@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -113,11 +114,40 @@ export const passes = pgTable(
       .references(() => customers.id, { onDelete: "cascade" }),
     serialNumber: text("serial_number").notNull().unique(), // lo genera PR de emisión
     googleWalletObjectId: text("google_wallet_object_id"), // lo completa PR-04
-    applePassId: text("apple_pass_id"), // lo completa PR-05
+    appleAuthToken: text("apple_auth_token"), // token de autenticación para webService de Apple Wallet
     estado: passEstadoEnum("estado").notNull().default("activa"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("passes_merchant_id_idx").on(table.merchantId)],
+);
+
+// appleDevices: dispositivos Apple Wallet registrados para recibir push vía webService
+export const appleDevices = pgTable(
+  "apple_devices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceLibraryIdentifier: text("device_library_identifier").notNull(),
+    pushToken: text("push_token").notNull(),
+    passTypeIdentifier: text("pass_type_identifier").notNull(),
+    serialNumber: text("serial_number").notNull(),
+    passId: uuid("pass_id").references(() => passes.id, {
+      onDelete: "cascade",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("apple_devices_device_idx").on(
+      table.deviceLibraryIdentifier,
+      table.passTypeIdentifier,
+    ),
+    index("apple_devices_serial_idx").on(table.serialNumber),
+    unique("apple_device_registration_unique").on(
+      table.deviceLibraryIdentifier,
+      table.passTypeIdentifier,
+      table.serialNumber,
+    ),
+  ],
 );
 
 // stamps: sellos otorgados. INMUTABLE: sin updates ni deletes.

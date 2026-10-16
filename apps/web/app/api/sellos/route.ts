@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
-      applePassId: passes.applePassId,
+      serialNumber: passes.serialNumber,
       googleWalletObjectId: passes.googleWalletObjectId,
       clienteNombre: customers.nombre,
       comercioNombre: merchants.nombre,
@@ -180,12 +180,12 @@ export async function POST(request: NextRequest) {
 
   const sellosAcumulados = Number(totalResult?.total ?? 1);
 
-  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía proveedor)
+  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía protocolo webService)
   notifyStampAdded({
     merchantNombre: row.comercioNombre,
     sellosAcumulados,
     googleWalletObjectId: row.googleWalletObjectId,
-    applePassId: row.applePassId,
+    serialNumber: row.serialNumber,
   }).catch((err) => {
     console.error("[Push] Error al enviar notificación:", err);
   });

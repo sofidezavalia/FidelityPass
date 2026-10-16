@@ -21,9 +21,11 @@ const envSchema = z.object({
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
 
-  // Apple Wallet (proveedor tercerizado en piloto) — Patrón "integración dormida"
-  PASSES_PROVIDER_API_KEY: z.string().optional(),
-  PASSES_PROVIDER_BASE_URL: z.string().url().optional(),
+  // Apple Wallet (firma local con certificado propio) — Patrón "integración dormida"
+  APPLE_PASS_TYPE_ID: z.string().optional(),
+  APPLE_TEAM_ID: z.string().optional(),
+  APPLE_PASS_CERT_PEM: z.string().optional(),
+  APPLE_PASS_KEY_PEM: z.string().optional(),
 
   // Object Storage (Neon / S3) — Patrón "integración dormida" (opcionales)
   STORAGE_BUCKET: z.string().optional(),
