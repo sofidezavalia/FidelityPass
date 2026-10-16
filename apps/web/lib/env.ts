@@ -24,6 +24,14 @@ const envSchema = z.object({
   // Apple Wallet (proveedor tercerizado en piloto) — Patrón "integración dormida"
   PASSES_PROVIDER_API_KEY: z.string().optional(),
   PASSES_PROVIDER_BASE_URL: z.string().url().optional(),
+
+  // Object Storage (Neon / S3) — Patrón "integración dormida" (opcionales)
+  STORAGE_BUCKET: z.string().optional(),
+  STORAGE_REGION: z.string().optional(),
+  STORAGE_ENDPOINT: z.string().optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  STORAGE_PUBLIC_URL: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

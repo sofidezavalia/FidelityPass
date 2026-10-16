@@ -24,6 +24,9 @@ function getFormattedPrivateKey(): string {
 export interface MerchantPassData {
   id: string;
   nombre: string;
+  colorPrimario?: string | null;
+  colorSecundario?: string | null;
+  logoUrl?: string | null;
 }
 
 export interface CustomerPassData {
@@ -43,14 +46,25 @@ export interface IssuedPassResult {
 export function getOrCreateClass(merchant: MerchantPassData) {
   const issuerId = env.GOOGLE_WALLET_ISSUER_ID || "ISSUER_UNSET";
   const classId = `${issuerId}.${merchant.id}`;
+  const hexBackgroundColor = merchant.colorPrimario || colors.azulNoche;
 
-  return {
+  const loyaltyClass: Record<string, unknown> = {
     id: classId,
     issuerName: merchant.nombre,
     programName: `Fidelidad ${merchant.nombre}`,
     reviewStatus: "UNDER_REVIEW",
-    hexBackgroundColor: colors.azulNoche,
+    hexBackgroundColor,
   };
+
+  if (merchant.logoUrl) {
+    loyaltyClass.programLogo = {
+      sourceUri: {
+        uri: merchant.logoUrl,
+      },
+    };
+  }
+
+  return loyaltyClass;
 }
 
 /**
@@ -78,14 +92,23 @@ export function issuePass(
   const serialNumber = crypto.randomUUID();
   const classId = `${issuerId}.${merchant.id}`;
   const googleWalletObjectId = `${issuerId}.${serialNumber}`;
+  const hexBackgroundColor = merchant.colorPrimario || colors.azulNoche;
 
-  const loyaltyClass = {
+  const loyaltyClass: Record<string, unknown> = {
     id: classId,
     issuerName: merchant.nombre,
     programName: `Fidelidad ${merchant.nombre}`,
     reviewStatus: "UNDER_REVIEW",
-    hexBackgroundColor: colors.azulNoche,
+    hexBackgroundColor,
   };
+
+  if (merchant.logoUrl) {
+    loyaltyClass.programLogo = {
+      sourceUri: {
+        uri: merchant.logoUrl,
+      },
+    };
+  }
 
   const loyaltyObject = {
     id: googleWalletObjectId,

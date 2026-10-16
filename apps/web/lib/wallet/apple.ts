@@ -15,6 +15,9 @@ export function isAppleWalletConfigured(): boolean {
 export interface MerchantApplePassData {
   id: string;
   nombre: string;
+  colorPrimario?: string | null;
+  colorSecundario?: string | null;
+  logoUrl?: string | null;
 }
 
 export interface CustomerApplePassData {
@@ -50,15 +53,18 @@ export async function createApplePass(
 
   const baseUrl = env.PASSES_PROVIDER_BASE_URL || "https://api.passslot.com/v1";
 
+  const backgroundColor = merchant.colorPrimario || colors.azulNoche;
+  const labelColor = merchant.colorSecundario || colors.celesteBandera;
+
   // Payload según especificación de Apple Wallet storeCard (tarjeta de fidelidad)
-  const payload = {
+  const payload: Record<string, unknown> = {
     passTypeIdentifier: "pass.com.fidelitypass.loyalty",
     style: "storeCard",
     organizationName: merchant.nombre,
     description: `Tarjeta de fidelidad ${merchant.nombre}`,
-    backgroundColor: colors.azulNoche,
+    backgroundColor,
     foregroundColor: colors.niebla,
-    labelColor: colors.celesteBandera,
+    labelColor,
     barcodes: [
       {
         format: "PKBarcodeFormatQR",
