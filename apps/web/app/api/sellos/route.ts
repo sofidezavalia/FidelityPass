@@ -1,8 +1,9 @@
 import { sellarSchema, selloResultadoSchema } from "@fidelitypass/contracts";
-import { customers, db, passes, stamps } from "@fidelitypass/db";
+import { customers, db, merchants, passes, stamps } from "@fidelitypass/db";
 import { and, count, eq, gte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedStaff } from "../../../lib/staff-auth";
+import { notifyStampAdded } from "../../../lib/wallet/notifications";
 
 /**
  * GET /api/sellos?serialNumber=...
@@ -109,16 +110,20 @@ export async function POST(request: NextRequest) {
 
   const { serialNumber } = validation.data;
 
-  // 1. Buscamos el pase por serialNumber con los datos del cliente
+  // 1. Buscamos el pase por serialNumber con los datos del cliente y comercio
   const [row] = await db
     .select({
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
+      applePassId: passes.applePassId,
+      googleWalletObjectId: passes.googleWalletObjectId,
       clienteNombre: customers.nombre,
+      comercioNombre: merchants.nombre,
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
+    .innerJoin(merchants, eq(passes.merchantId, merchants.id))
     .where(eq(passes.serialNumber, serialNumber))
     .limit(1);
 
@@ -173,10 +178,22 @@ export async function POST(request: NextRequest) {
     .from(stamps)
     .where(eq(stamps.passId, row.id));
 
+  const sellosAcumulados = Number(totalResult?.total ?? 1);
+
+  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía proveedor)
+  notifyStampAdded({
+    merchantNombre: row.comercioNombre,
+    sellosAcumulados,
+    googleWalletObjectId: row.googleWalletObjectId,
+    applePassId: row.applePassId,
+  }).catch((err) => {
+    console.error("[Push] Error al enviar notificación:", err);
+  });
+
   const resultado = {
     ok: true as const,
     clienteNombre: row.clienteNombre,
-    sellosAcumulados: Number(totalResult?.total ?? 1),
+    sellosAcumulados,
   };
 
   const validated = selloResultadoSchema.parse(resultado);

@@ -1,0 +1,148 @@
+import { mensajeSelloSchema } from "@fidelitypass/contracts";
+import jwt from "jsonwebtoken";
+import { env } from "../env";
+import { updateApplePassStamps } from "./apple";
+import { isGoogleWalletConfigured } from "./google";
+
+export interface NotifyStampAddedArgs {
+  merchantNombre: string;
+  sellosAcumulados: number;
+  googleWalletObjectId?: string | null;
+  applePassId?: string | null;
+}
+
+/**
+ * Obtiene un token OAuth2 de corta duración mediante JWT bearer assertion
+ * para autenticarse contra la REST API de Google Wallet.
+ */
+async function getGoogleWalletAccessToken(): Promise<string> {
+  const issuer = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const rawKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "";
+  const privateKey = rawKey.replace(/\\n/g, "\n");
+
+  const now = Math.floor(Date.now() / 1000);
+  const assertionClaims = {
+    iss: issuer,
+    scope: "https://www.googleapis.com/auth/wallet_object.issuer",
+    aud: "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+  };
+
+  const assertion = jwt.sign(assertionClaims, privateKey, {
+    algorithm: "RS256",
+  });
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Error al autenticar con Google OAuth (${response.status}): ${errorText}`,
+    );
+  }
+
+  const data = (await response.json()) as { access_token: string };
+  return data.access_token;
+}
+
+/**
+ * Agrega un mensaje push transaccional a la tarjeta de Google Wallet
+ * utilizando la Messages API de Google Wallet.
+ */
+async function sendGoogleWalletMessage(
+  googleWalletObjectId: string,
+  titulo: string,
+  cuerpo: string,
+): Promise<void> {
+  const token = await getGoogleWalletAccessToken();
+
+  const url = `https://walletobjects.googleapis.com/walletobjects/v1/loyaltyObject/${encodeURIComponent(googleWalletObjectId)}/addMessage`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: {
+        header: titulo,
+        body: cuerpo,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Error en Google Wallet Messages API (${response.status}): ${errorText}`,
+    );
+  }
+}
+
+/**
+ * Notificación transaccional al sumar un sello en FidelityPass.
+ *
+ * Reglas de diseño:
+ * 1. El texto se construye y valida en el servidor con los datos oficiales.
+ * 2. Cada plataforma (Google y Apple) se intenta de forma independiente.
+ * 3. Si la notificación falla o está en modo dormido, NUNCA revierte el sello ni lanza error.
+ */
+export async function notifyStampAdded(
+  args: NotifyStampAddedArgs,
+): Promise<void> {
+  const {
+    merchantNombre,
+    sellosAcumulados,
+    googleWalletObjectId,
+    applePassId,
+  } = args;
+
+  // 1. Armamos y validamos el mensaje en el servidor
+  const mensaje = mensajeSelloSchema.parse({
+    titulo: `¡Sello sumado en ${merchantNombre}!`,
+    cuerpo: `¡Sello sumado en ${merchantNombre}! Llevás ${sellosAcumulados} sellos.`,
+  });
+
+  // 2. Google Wallet: si está configurado y el pase tiene id de Google Wallet
+  if (isGoogleWalletConfigured() && googleWalletObjectId) {
+    try {
+      await sendGoogleWalletMessage(
+        googleWalletObjectId,
+        mensaje.titulo,
+        mensaje.cuerpo,
+      );
+    } catch (err) {
+      console.error(
+        `[Push Google Wallet] Error al notificar objeto ${googleWalletObjectId}:`,
+        err,
+      );
+    }
+  }
+
+  // 3. Apple Wallet: el mensaje viaja en la actualización del pase vía proveedor
+  if (applePassId) {
+    try {
+      await updateApplePassStamps(
+        applePassId,
+        sellosAcumulados,
+        mensaje.cuerpo,
+      );
+    } catch (err) {
+      console.error(
+        `[Push Apple Wallet] Error al notificar pase ${applePassId}:`,
+        err,
+      );
+    }
+  }
+}
