@@ -1,13 +1,22 @@
 import { sellarSchema, selloResultadoSchema } from "@fidelitypass/contracts";
-import { customers, db, merchants, passes, stamps } from "@fidelitypass/db";
-import { and, count, eq, gte } from "drizzle-orm";
+import {
+  customers,
+  db,
+  merchants,
+  passes,
+  redemptions,
+  rewards,
+  stamps,
+} from "@fidelitypass/db";
+import { and, count, eq, gte, sum } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedStaff } from "../../../lib/staff-auth";
 import { notifyStampAdded } from "../../../lib/wallet/notifications";
 
 /**
  * GET /api/sellos?serialNumber=...
- * Permite al empleado previsualizar el cliente y estado del pase antes de confirmar el sello.
+ * Permite al empleado previsualizar el cliente, estado del pase, saldo disponible
+ * y catálogo de recompensas canjeables antes de confirmar el sello o canje.
  */
 export async function GET(request: NextRequest) {
   const staffSession = await getAuthenticatedStaff();
@@ -28,9 +37,11 @@ export async function GET(request: NextRequest) {
       merchantId: passes.merchantId,
       estado: passes.estado,
       clienteNombre: customers.nombre,
+      maxSellosPorDia: merchants.maxSellosPorDia,
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
+    .innerJoin(merchants, eq(passes.merchantId, merchants.id))
     .where(eq(passes.serialNumber, serialNumber))
     .limit(1);
 
@@ -55,34 +66,72 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Verificamos si ya tiene sello hoy
+  // 1. Verificamos los sellos otorgados hoy según la regla configurable
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [selloHoy] = await db
-    .select({ id: stamps.id })
+  const [sellosHoyResult] = await db
+    .select({ total: count() })
     .from(stamps)
-    .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)))
-    .limit(1);
+    .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)));
 
-  const [totalSellos] = await db
+  const sellosHoy = Number(sellosHoyResult?.total ?? 0);
+  const maxSellos = row.maxSellosPorDia ?? 1;
+
+  // 2. Sellos totales acumulados (inmutables)
+  const [totalSellosResult] = await db
     .select({ total: count() })
     .from(stamps)
     .where(eq(stamps.passId, row.id));
+  const totalSellos = Number(totalSellosResult?.total ?? 0);
+
+  // 3. Sellos utilizados en canjes
+  const [redemptionsSum] = await db
+    .select({ totalUsados: sum(redemptions.sellosUsados) })
+    .from(redemptions)
+    .where(eq(redemptions.passId, row.id));
+  const totalUsados = Number(redemptionsSum?.totalUsados ?? 0);
+
+  // 4. Saldo disponible = sellos totales − Σ(redemptions.sellosUsados)
+  const saldoDisponible = Math.max(0, totalSellos - totalUsados);
+
+  // 5. Recompensas activas del comercio
+  const activeRewards = await db
+    .select({
+      id: rewards.id,
+      nombre: rewards.nombre,
+      descripcion: rewards.descripcion,
+      sellosRequeridos: rewards.sellosRequeridos,
+    })
+    .from(rewards)
+    .where(
+      and(
+        eq(rewards.merchantId, staffSession.merchantId),
+        eq(rewards.activa, true),
+      ),
+    )
+    .orderBy(rewards.sellosRequeridos);
 
   return NextResponse.json({
     ok: true,
     passId: row.id,
     clienteNombre: row.clienteNombre,
     estado: row.estado,
-    sellosAcumulados: Number(totalSellos?.total ?? 0),
-    yaSelladoHoy: Boolean(selloHoy),
+    sellosAcumulados: totalSellos,
+    saldoDisponible,
+    sellosHoy,
+    maxSellosPorDia: maxSellos,
+    yaSelladoHoy: sellosHoy >= maxSellos,
+    recompensas: activeRewards.map((r) => ({
+      ...r,
+      canjeable: r.sellosRequeridos <= saldoDisponible,
+    })),
   });
 }
 
 /**
  * POST /api/sellos
- * Suma un sello a la tarjeta con validación anti-fraude (máx. 1 sello diario).
+ * Suma un sello a la tarjeta con validación anti-fraude según maxSellosPorDia configurable.
  */
 export async function POST(request: NextRequest) {
   const staffSession = await getAuthenticatedStaff();
@@ -116,10 +165,11 @@ export async function POST(request: NextRequest) {
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
-      applePassId: passes.applePassId,
+      serialNumber: passes.serialNumber,
       googleWalletObjectId: passes.googleWalletObjectId,
       clienteNombre: customers.nombre,
       comercioNombre: merchants.nombre,
+      maxSellosPorDia: merchants.maxSellosPorDia,
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
@@ -148,19 +198,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2. Regla anti-fraude: máximo 1 sello por tarjeta por día
+  // 2. Regla anti-fraude: configurable por comercio (merchants.maxSellosPorDia, default 1)
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [selloHoy] = await db
-    .select({ id: stamps.id })
+  const [sellosHoyResult] = await db
+    .select({ total: count() })
     .from(stamps)
-    .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)))
-    .limit(1);
+    .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)));
 
-  if (selloHoy) {
+  const sellosHoy = Number(sellosHoyResult?.total ?? 0);
+  const maxSellos = row.maxSellosPorDia ?? 1;
+
+  if (sellosHoy >= maxSellos) {
     return NextResponse.json(
-      { error: "Ya se sumó el sello de hoy para esta tarjeta" },
+      {
+        error:
+          maxSellos === 1
+            ? "Ya se sumó el sello de hoy para esta tarjeta"
+            : `Ya se alcanzó el límite diario de ${maxSellos} sellos para esta tarjeta`,
+      },
       { status: 409 },
     );
   }
@@ -172,7 +229,7 @@ export async function POST(request: NextRequest) {
     merchantId: staffSession.merchantId,
   });
 
-  // 4. Calcular total actualizado
+  // 4. Calcular total actualizado de sellos
   const [totalResult] = await db
     .select({ total: count() })
     .from(stamps)
@@ -180,12 +237,20 @@ export async function POST(request: NextRequest) {
 
   const sellosAcumulados = Number(totalResult?.total ?? 1);
 
-  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía proveedor)
+  // 5. Calcular saldo disponible restando redenciones
+  const [redemptionsSum] = await db
+    .select({ totalUsados: sum(redemptions.sellosUsados) })
+    .from(redemptions)
+    .where(eq(redemptions.passId, row.id));
+  const totalUsados = Number(redemptionsSum?.totalUsados ?? 0);
+  const saldoDisponible = Math.max(0, sellosAcumulados - totalUsados);
+
+  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía protocolo webService)
   notifyStampAdded({
     merchantNombre: row.comercioNombre,
     sellosAcumulados,
     googleWalletObjectId: row.googleWalletObjectId,
-    applePassId: row.applePassId,
+    serialNumber: row.serialNumber,
   }).catch((err) => {
     console.error("[Push] Error al enviar notificación:", err);
   });
@@ -194,6 +259,7 @@ export async function POST(request: NextRequest) {
     ok: true as const,
     clienteNombre: row.clienteNombre,
     sellosAcumulados,
+    saldoDisponible,
   };
 
   const validated = selloResultadoSchema.parse(resultado);

@@ -1,6 +1,7 @@
 import { db, merchants } from "@fidelitypass/db";
 import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
+import { isAppleWalletConfigured } from "../../../../lib/wallet/apple";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -29,5 +30,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(merchant);
+  return NextResponse.json({
+    ...merchant,
+    isAppleWalletConfigured: isAppleWalletConfigured(),
+  });
 }

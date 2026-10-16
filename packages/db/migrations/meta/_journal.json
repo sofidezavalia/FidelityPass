@@ -29,6 +29,20 @@
       "when": 1792174079414,
       "tag": "0003_complete_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792174852983,
+      "tag": "0004_rework_apple_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792183580644,
+      "tag": "0005_wet_toad_men",
+      "breakpoints": true
     }
   ]
 }

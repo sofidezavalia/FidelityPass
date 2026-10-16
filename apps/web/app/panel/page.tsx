@@ -4,6 +4,8 @@ import {
   type DashboardResumen,
   type PaseListItem,
   personalizacionSchema,
+  reglasSchema,
+  rewardSchema,
   type SelloListItem,
 } from "@fidelitypass/contracts";
 import { theme } from "@fidelitypass/ui";
@@ -29,6 +31,20 @@ interface PersonalizacionResponse {
   colorPrimario: string;
   colorSecundario: string;
   isStorageConfigured: boolean;
+}
+
+interface RewardItem {
+  id: string;
+  merchantId: string;
+  nombre: string;
+  descripcion: string | null;
+  sellosRequeridos: number;
+  activa: boolean;
+  createdAt: string;
+}
+
+interface ReglasResponse {
+  maxSellosPorDia: number;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -129,6 +145,172 @@ export default function PanelPage() {
       setIsStorageEnabled(Boolean(personalizacionData.isStorageConfigured));
     }
   }, [personalizacionData]);
+
+  // Estados locales para Recompensas (PR-09)
+  const [rewardNombre, setRewardNombre] = useState("");
+  const [rewardDescripcion, setRewardDescripcion] = useState("");
+  const [rewardSellosRequeridos, setRewardSellosRequeridos] = useState<
+    number | ""
+  >(10);
+  const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
+  const [rewardLoading, setRewardLoading] = useState(false);
+  const [rewardError, setRewardError] = useState("");
+  const [rewardSuccess, setRewardSuccess] = useState("");
+
+  // Estados locales para Reglas de Sellado (PR-09)
+  const [maxSellosPorDia, setMaxSellosPorDia] = useState<number>(1);
+  const [savingReglas, setSavingReglas] = useState(false);
+  const [reglasError, setReglasError] = useState("");
+  const [reglasSuccess, setReglasSuccess] = useState("");
+
+  // 6. Catálogo de recompensas
+  const { data: rewardsList = [], isLoading: rewardsListLoading } = useQuery<
+    RewardItem[]
+  >({
+    queryKey: ["panel", "rewards"],
+    queryFn: () => fetchJson<RewardItem[]>("/api/rewards"),
+  });
+
+  // 7. Reglas de sellado
+  const { data: reglasData } = useQuery<ReglasResponse>({
+    queryKey: ["panel", "reglas"],
+    queryFn: () => fetchJson<ReglasResponse>("/api/merchants/reglas"),
+  });
+
+  useEffect(() => {
+    if (reglasData && typeof reglasData.maxSellosPorDia === "number") {
+      setMaxSellosPorDia(reglasData.maxSellosPorDia);
+    }
+  }, [reglasData]);
+
+  const handleGuardarRecompensa = async (e: FormEvent) => {
+    e.preventDefault();
+    setRewardError("");
+    setRewardSuccess("");
+
+    const validation = rewardSchema.safeParse({
+      nombre: rewardNombre.trim(),
+      descripcion: rewardDescripcion.trim(),
+      sellosRequeridos: Number(rewardSellosRequeridos),
+    });
+
+    if (!validation.success) {
+      setRewardError(
+        validation.error.issues[0]?.message || "Datos de recompensa inválidos",
+      );
+      return;
+    }
+
+    setRewardLoading(true);
+
+    try {
+      const url = editingRewardId
+        ? `/api/rewards/${editingRewardId}`
+        : "/api/rewards";
+      const method = editingRewardId ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validation.data),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRewardError(data.error || "Error al guardar la recompensa");
+        return;
+      }
+
+      setRewardSuccess(
+        editingRewardId
+          ? "Recompensa actualizada con éxito."
+          : "Recompensa creada con éxito.",
+      );
+      setRewardNombre("");
+      setRewardDescripcion("");
+      setRewardSellosRequeridos(10);
+      setEditingRewardId(null);
+      queryClient.invalidateQueries({ queryKey: ["panel", "rewards"] });
+      setTimeout(() => setRewardSuccess(""), 4000);
+    } catch {
+      setRewardError("Error de conexión al guardar la recompensa.");
+    } finally {
+      setRewardLoading(false);
+    }
+  };
+
+  const handleEditarRecompensa = (r: RewardItem) => {
+    setEditingRewardId(r.id);
+    setRewardNombre(r.nombre);
+    setRewardDescripcion(r.descripcion || "");
+    setRewardSellosRequeridos(r.sellosRequeridos);
+    setRewardError("");
+    setRewardSuccess("");
+  };
+
+  const handleCancelarEdicionRecompensa = () => {
+    setEditingRewardId(null);
+    setRewardNombre("");
+    setRewardDescripcion("");
+    setRewardSellosRequeridos(10);
+    setRewardError("");
+  };
+
+  const handleDesactivarRecompensa = async (id: string) => {
+    try {
+      const res = await fetch(`/api/rewards/${id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["panel", "rewards"] });
+        setRewardSuccess("Recompensa desactivada con éxito.");
+        setTimeout(() => setRewardSuccess(""), 4000);
+      }
+    } catch {
+      setRewardError("Error al desactivar la recompensa.");
+    }
+  };
+
+  const handleGuardarReglas = async (e: FormEvent) => {
+    e.preventDefault();
+    setReglasError("");
+    setReglasSuccess("");
+
+    const validation = reglasSchema.safeParse({
+      maxSellosPorDia: Number(maxSellosPorDia),
+    });
+
+    if (!validation.success) {
+      setReglasError(
+        validation.error.issues[0]?.message || "Regla de sellos inválida",
+      );
+      return;
+    }
+
+    setSavingReglas(true);
+
+    try {
+      const res = await fetch("/api/merchants/reglas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validation.data),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setReglasError(data.error || "Error al guardar las reglas");
+        return;
+      }
+
+      setReglasSuccess("Reglas de sellado actualizadas con éxito.");
+      queryClient.invalidateQueries({ queryKey: ["panel", "reglas"] });
+      setTimeout(() => setReglasSuccess(""), 4000);
+    } catch {
+      setReglasError("Error de conexión al guardar las reglas.");
+    } finally {
+      setSavingReglas(false);
+    }
+  };
 
   const handleGuardarPersonalizacion = async (e: FormEvent) => {
     e.preventDefault();
@@ -1538,6 +1720,555 @@ export default function PanelPage() {
               </div>
             )}
           </div>
+        </section>
+
+        {/* SECCIÓN: CATÁLOGO DE RECOMPENSAS (PR-09) */}
+        <section
+          id="seccion-recompensas"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          <div style={{ marginBottom: "20px" }}>
+            <div
+              style={{
+                display: "inline-block",
+                padding: "3px 10px",
+                borderRadius: "12px",
+                backgroundColor: `${theme.accent.premium}1A`,
+                color: theme.accent.premium,
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Fidelización y Canjes
+            </div>
+            <h2
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "20px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              Catálogo de recompensas
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                color: theme.text.secondary,
+              }}
+            >
+              Definí los beneficios que tus clientes pueden canjear al acumular
+              sellos en su tarjeta.
+            </p>
+          </div>
+
+          {/* Formulario de alta / edición */}
+          <form
+            id="form-recompensa"
+            onSubmit={handleGuardarRecompensa}
+            style={{
+              backgroundColor: theme.surface.light,
+              borderRadius: "12px",
+              padding: "20px",
+              marginBottom: "24px",
+              border: `1px solid ${theme.colors.niebla}`,
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "15px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              {editingRewardId ? "Editar recompensa" : "Nueva recompensa"}
+            </h3>
+
+            {rewardError && (
+              <div
+                id="error-recompensa"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#FEE2E2",
+                  color: "#991B1B",
+                  fontSize: "13px",
+                  marginBottom: "16px",
+                }}
+              >
+                {rewardError}
+              </div>
+            )}
+
+            {rewardSuccess && (
+              <div
+                id="success-recompensa"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#DCFCE7",
+                  color: "#166534",
+                  fontSize: "13px",
+                  marginBottom: "16px",
+                }}
+              >
+                {rewardSuccess}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr",
+                gap: "14px",
+                marginBottom: "14px",
+              }}
+            >
+              <div>
+                <label
+                  htmlFor="input-nombre-recompensa"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Nombre de la recompensa
+                </label>
+                <input
+                  id="input-nombre-recompensa"
+                  type="text"
+                  placeholder="Ej. Café gratis, 20% de descuento"
+                  value={rewardNombre}
+                  onChange={(e) => setRewardNombre(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #CBD5E1",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="input-sellos-recompensa"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Sellos requeridos
+                </label>
+                <input
+                  id="input-sellos-recompensa"
+                  type="number"
+                  min={1}
+                  placeholder="Ej. 10"
+                  value={rewardSellosRequeridos}
+                  onChange={(e) =>
+                    setRewardSellosRequeridos(
+                      e.target.value === "" ? "" : Number(e.target.value),
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #CBD5E1",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label
+                htmlFor="input-desc-recompensa"
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                Descripción (opcional)
+              </label>
+              <input
+                id="input-desc-recompensa"
+                type="text"
+                placeholder="Ej. Válido para espresso o café con leche en cualquier horario"
+                value={rewardDescripcion}
+                onChange={(e) => setRewardDescripcion(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button
+                type="submit"
+                id="btn-guardar-recompensa"
+                disabled={rewardLoading}
+                style={{
+                  backgroundColor: theme.button.primaryBg,
+                  color: theme.button.primaryText,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 20px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: rewardLoading ? "not-allowed" : "pointer",
+                  opacity: rewardLoading ? 0.7 : 1,
+                }}
+              >
+                {rewardLoading
+                  ? "Guardando..."
+                  : editingRewardId
+                    ? "Guardar cambios"
+                    : "Crear recompensa"}
+              </button>
+
+              {editingRewardId && (
+                <button
+                  type="button"
+                  id="btn-cancelar-edicion-recompensa"
+                  onClick={handleCancelarEdicionRecompensa}
+                  style={{
+                    backgroundColor: "transparent",
+                    color: theme.text.secondary,
+                    border: `1px solid ${theme.colors.niebla}`,
+                    borderRadius: "8px",
+                    padding: "10px 16px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancelar edición
+                </button>
+              )}
+            </div>
+          </form>
+
+          {/* Tabla de recompensas */}
+          <div style={{ overflowX: "auto" }}>
+            {rewardsListLoading ? (
+              <p style={{ color: theme.text.secondary, fontSize: "14px" }}>
+                Cargando recompensas...
+              </p>
+            ) : rewardsList.length === 0 ? (
+              <p
+                id="sin-recompensas-msg"
+                style={{
+                  color: theme.text.secondary,
+                  fontSize: "14px",
+                  textAlign: "center",
+                  padding: "20px",
+                  backgroundColor: theme.surface.light,
+                  borderRadius: "8px",
+                }}
+              >
+                Aún no creaste recompensas. Creá la primera para motivar a tus
+                clientes.
+              </p>
+            ) : (
+              <table
+                id="tabla-recompensas"
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "14px",
+                  textAlign: "left",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: `2px solid ${theme.colors.niebla}`,
+                      color: theme.text.secondary,
+                    }}
+                  >
+                    <th style={{ padding: "10px 12px" }}>Nombre</th>
+                    <th style={{ padding: "10px 12px" }}>Descripción</th>
+                    <th style={{ padding: "10px 12px" }}>Sellos</th>
+                    <th style={{ padding: "10px 12px" }}>Estado</th>
+                    <th style={{ padding: "10px 12px", textAlign: "right" }}>
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rewardsList.map((r) => (
+                    <tr
+                      key={r.id}
+                      id={`fila-recompensa-${r.id}`}
+                      style={{
+                        borderBottom: `1px solid ${theme.colors.niebla}`,
+                        opacity: r.activa ? 1 : 0.6,
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: 600,
+                          color: theme.text.onLight,
+                        }}
+                      >
+                        {r.nombre}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        {r.descripcion || "—"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: 700,
+                          color: theme.button.primaryBg,
+                        }}
+                      >
+                        {r.sellosRequeridos}
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            backgroundColor: r.activa ? "#DCFCE7" : "#F1F5F9",
+                            color: r.activa ? "#166534" : theme.text.secondary,
+                          }}
+                        >
+                          {r.activa ? "Activa" : "Inactiva"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: "8px" }}>
+                          <button
+                            type="button"
+                            id={`btn-editar-recompensa-${r.id}`}
+                            onClick={() => handleEditarRecompensa(r)}
+                            style={{
+                              backgroundColor: "transparent",
+                              color: theme.button.primaryBg,
+                              border: "none",
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                            }}
+                          >
+                            Editar
+                          </button>
+                          {r.activa && (
+                            <button
+                              type="button"
+                              id={`btn-desactivar-recompensa-${r.id}`}
+                              onClick={() => handleDesactivarRecompensa(r.id)}
+                              style={{
+                                backgroundColor: "transparent",
+                                color: "#DC2626",
+                                border: "none",
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                              }}
+                            >
+                              Desactivar
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        {/* SECCIÓN: REGLAS DE SELLADO (PR-09) */}
+        <section
+          id="seccion-reglas"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          <div style={{ marginBottom: "20px" }}>
+            <div
+              style={{
+                display: "inline-block",
+                padding: "3px 10px",
+                borderRadius: "12px",
+                backgroundColor: "#FEF3C7",
+                color: "#92400E",
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              Reglas anti-fraude
+            </div>
+            <h2
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "20px",
+                fontWeight: 700,
+                color: theme.text.onLight,
+              }}
+            >
+              Reglas de sellado
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                color: theme.text.secondary,
+              }}
+            >
+              Configurá el límite de sellos que un cliente puede sumar en un
+              mismo día.
+            </p>
+          </div>
+
+          {reglasError && (
+            <div
+              id="error-reglas"
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                backgroundColor: "#FEE2E2",
+                color: "#991B1B",
+                fontSize: "13px",
+                marginBottom: "16px",
+              }}
+            >
+              {reglasError}
+            </div>
+          )}
+
+          {reglasSuccess && (
+            <div
+              id="success-reglas"
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                backgroundColor: "#DCFCE7",
+                color: "#166534",
+                fontSize: "13px",
+                marginBottom: "16px",
+              }}
+            >
+              {reglasSuccess}
+            </div>
+          )}
+
+          <form onSubmit={handleGuardarReglas}>
+            <div style={{ maxWidth: "340px", marginBottom: "16px" }}>
+              <label
+                htmlFor="input-max-sellos-por-dia"
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                Máximo de sellos por cliente por día
+              </label>
+              <input
+                id="input-max-sellos-por-dia"
+                type="number"
+                min={1}
+                max={10}
+                value={maxSellosPorDia}
+                onChange={(e) => setMaxSellosPorDia(Number(e.target.value))}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  color: theme.text.secondary,
+                  marginTop: "4px",
+                }}
+              >
+                Valor por defecto: 1 sello diario. Rango permitido: 1 a 10.
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              id="btn-guardar-reglas"
+              disabled={savingReglas}
+              style={{
+                backgroundColor: theme.button.primaryBg,
+                color: theme.button.primaryText,
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: savingReglas ? "not-allowed" : "pointer",
+                opacity: savingReglas ? 0.7 : 1,
+              }}
+            >
+              {savingReglas ? "Guardando..." : "Guardar reglas"}
+            </button>
+          </form>
         </section>
 
         {/* Tabla: Tarjetas emitidas */}
