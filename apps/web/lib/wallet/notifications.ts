@@ -19,6 +19,13 @@ export interface SendCampaignArgs {
   cuerpo: string;
 }
 
+export interface SendBirthdayGreetingArgs {
+  customerNombre: string;
+  merchantNombre: string;
+  googleWalletObjectId?: string | null;
+  serialNumber?: string | null;
+}
+
 /**
  * Obtiene un token OAuth2 de corta duración mediante JWT bearer assertion
  * para autenticarse contra la REST API de Google Wallet.
@@ -209,4 +216,56 @@ export async function sendCampaign(
   }
 
   return { enviadas: activePasses.length };
+}
+
+/**
+ * Envía un push de saludo de cumpleaños al pase activo del cliente.
+ * Formato del mensaje:
+ * "¡Feliz cumpleaños, {nombre}! 🎉 Pasá por {comercio} que tenemos algo para vos."
+ * Patrón "integración dormida":
+ * - Si ninguna plataforma está configurada, no envía nada y lo loguea (no falla).
+ * - Si Google Wallet está configurada: Messages API por objeto.
+ * - Si Apple Wallet está configurada: push APNs a los dispositivos registrados.
+ */
+export async function sendBirthdayGreeting(
+  args: SendBirthdayGreetingArgs,
+): Promise<void> {
+  const { customerNombre, merchantNombre, googleWalletObjectId, serialNumber } =
+    args;
+  const pushMessage = `¡Feliz cumpleaños, ${customerNombre}! 🎉 Pasá por ${merchantNombre} que tenemos algo para vos.`;
+  const titulo = `¡Feliz cumpleaños, ${customerNombre}! 🎉`;
+
+  const googleConfigured = isGoogleWalletConfigured();
+  const appleConfigured = isAppleWalletConfigured();
+
+  if (!googleConfigured && !appleConfigured) {
+    console.log(
+      `[Cumpleaños] Plataformas de wallet no configuradas. Saludo no enviado a ${customerNombre} (modo dormido).`,
+    );
+    return;
+  }
+
+  // Google Wallet Messages API
+  if (googleConfigured && googleWalletObjectId) {
+    try {
+      await sendGoogleWalletMessage(googleWalletObjectId, titulo, pushMessage);
+    } catch (err) {
+      console.error(
+        `[Cumpleaños Google Wallet] Error al enviar saludo a objeto ${googleWalletObjectId}:`,
+        err,
+      );
+    }
+  }
+
+  // Apple Wallet APNs push a dispositivos registrados
+  if (appleConfigured && serialNumber) {
+    try {
+      await pushStampsUpdate(serialNumber, 0, pushMessage);
+    } catch (err) {
+      console.error(
+        `[Cumpleaños Apple Wallet] Error al enviar saludo a serie ${serialNumber}:`,
+        err,
+      );
+    }
+  }
 }

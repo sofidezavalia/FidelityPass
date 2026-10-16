@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/cumpleanios",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}

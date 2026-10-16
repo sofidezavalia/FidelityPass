@@ -50,6 +50,13 @@
       "when": 1792184395516,
       "tag": "0006_solid_texas_twister",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792185286684,
+      "tag": "0007_curly_dakota_north",
+      "breakpoints": true
     }
   ]
 }
