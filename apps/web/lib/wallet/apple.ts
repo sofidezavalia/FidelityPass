@@ -125,6 +125,7 @@ export async function generateApplePass(
       teamIdentifier: teamId,
       serialNumber,
       organizationName: merchant.nombre,
+      logoText: merchant.nombre,
       description: `Tarjeta de fidelidad ${merchant.nombre}`,
       backgroundColor,
       foregroundColor: colors.niebla,
@@ -145,30 +146,44 @@ export async function generateApplePass(
     altText: serialNumber,
   });
 
-  // Campos del pase
+  // headerFields: arriba a la derecha {"key": "sellos", "label": "SELLOS", "value": "<n>"}
   pass.headerFields.push({
     key: "sellos",
     label: "SELLOS",
     value: String(sellos),
   });
 
+  // primaryFields: nombre del cliente (visible — anti-fraude)
   pass.primaryFields.push({
-    key: "comercio",
-    label: "COMERCIO",
-    value: merchant.nombre,
-  });
-
-  pass.secondaryFields.push({
     key: "titular",
     label: "TITULAR",
     value: customer.nombre,
   });
 
+  // secondaryFields: próxima recompensa (placeholder por ahora)
+  pass.secondaryFields.push({
+    key: "proxima_recompensa",
+    label: "PRÓXIMA RECOMPENSA",
+    value: "Consultá tus recompensas",
+  });
+
+  // backFields: datos del comercio e instrucciones de canje
   pass.backFields.push(
     {
-      key: "info",
-      label: "PROGRAMA DE FIDELIDAD",
-      value: `Tarjeta emitida para ${customer.nombre} por ${merchant.nombre}. Presentá este código en cada visita para sumar sellos.`,
+      key: "comercio",
+      label: "COMERCIO",
+      value: merchant.nombre,
+    },
+    {
+      key: "instrucciones",
+      label: "INSTRUCCIONES DE CANJE",
+      value:
+        "Presentá este código QR en el local antes de pagar para sumar sellos y canjear tus recompensas.",
+    },
+    {
+      key: "titular_info",
+      label: "TITULAR",
+      value: customer.nombre,
     },
     {
       key: "serial",
@@ -179,6 +194,8 @@ export async function generateApplePass(
 
   return pass.getAsBuffer();
 }
+
+export const createApplePass = generateApplePass;
 
 /**
  * Notifica a los dispositivos Apple Wallet registrados para un pase que se sumó un sello.
