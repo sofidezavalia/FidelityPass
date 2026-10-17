@@ -8,7 +8,8 @@ interface RecompensaItem {
   id: string;
   nombre: string;
   descripcion?: string | null;
-  sellosRequeridos: number;
+  costo: number;
+  sellosRequeridos?: number;
   canjeable: boolean;
 }
 
@@ -16,6 +17,12 @@ interface PassVerification {
   passId: string;
   clienteNombre: string;
   estado: string;
+  modoAcumulacion: "sello_por_visita" | "sello_por_monto" | "puntos_por_monto";
+  montoMinimoSello: number | null;
+  montoPorSello: number | null;
+  puntosPorUnidad: number | null;
+  unidad: "sellos" | "puntos";
+  totalAcumulado: number;
   sellosAcumulados: number;
   saldoDisponible: number;
   sellosHoy: number;
@@ -32,6 +39,7 @@ export default function EscanearPage() {
   const [verification, setVerification] = useState<PassVerification | null>(
     null,
   );
+  const [montoCompra, setMontoCompra] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [stampLoading, setStampLoading] = useState(false);
@@ -42,13 +50,18 @@ export default function EscanearPage() {
 
   const [stampResult, setStampResult] = useState<{
     clienteNombre: string;
-    sellosAcumulados: number;
+    unidad?: "sellos" | "puntos";
+    sellosAcumulados?: number;
+    puntosAcumulados?: number;
     saldoDisponible?: number;
+    unidadesOtorgadas?: number;
+    mensajeTope?: string;
   } | null>(null);
 
   const [canjeResult, setCanjeResult] = useState<{
     clienteNombre: string;
     recompensa: string;
+    unidad?: "sellos" | "puntos";
     saldoRestante: number;
   } | null>(null);
 
@@ -60,6 +73,7 @@ export default function EscanearPage() {
     setScannedCode(code);
     setVerifyLoading(true);
     setVerifyError("");
+    setMontoCompra("");
     setStep("VERIFYING");
 
     try {
@@ -74,7 +88,17 @@ export default function EscanearPage() {
         return;
       }
 
-      setVerification(data);
+      setVerification({
+        ...data,
+        unidad:
+          data.unidad ||
+          (data.modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos"),
+        recompensas: (data.recompensas || []).map((r: RecompensaItem) => ({
+          ...r,
+          costo: r.costo ?? r.sellosRequeridos,
+          sellosRequeridos: r.costo ?? r.sellosRequeridos,
+        })),
+      });
     } catch {
       setVerifyError("Error al verificar la tarjeta. Revisá tu conexión.");
     } finally {
@@ -136,33 +160,103 @@ export default function EscanearPage() {
     };
   }, [step, handleCodeDetected]);
 
+  // Cálculo en vivo del monto
+  const numMonto = parseFloat(montoCompra);
+  const hasValidMonto = !Number.isNaN(numMonto) && numMonto > 0;
+
+  let previewText = "";
+  let previewSubtext = "";
+  let canSubmitStamp = true;
+
+  if (verification) {
+    if (verification.modoAcumulacion === "sello_por_visita") {
+      if (verification.montoMinimoSello && verification.montoMinimoSello > 0) {
+        if (!hasValidMonto || numMonto < verification.montoMinimoSello) {
+          canSubmitStamp = false;
+          previewSubtext = `Mínimo $${verification.montoMinimoSello} para ganar el sello`;
+        } else {
+          previewText = "Va a sumar 1 sello";
+        }
+      } else {
+        previewText = "Va a sumar 1 sello";
+      }
+    } else if (verification.modoAcumulacion === "sello_por_monto") {
+      const montoPorSello = verification.montoPorSello ?? 1;
+      if (!hasValidMonto) {
+        canSubmitStamp = false;
+        previewSubtext = `1 sello cada $${montoPorSello}`;
+      } else {
+        const n = Math.floor(numMonto / montoPorSello);
+        if (n <= 0) {
+          canSubmitStamp = false;
+          previewSubtext = `El monto no alcanza para ningún sello (mínimo $${montoPorSello})`;
+        } else {
+          const maxSellos = verification.maxSellosPorDia ?? 1;
+          const sellosHoy = verification.sellosHoy ?? 0;
+          if (sellosHoy + n > maxSellos) {
+            const efectivo = Math.max(0, maxSellos - sellosHoy);
+            previewText = `Va a sumar ${efectivo} sello${efectivo !== 1 ? "s" : ""} (límite diario alcanzado)`;
+            if (efectivo <= 0) canSubmitStamp = false;
+          } else {
+            previewText = `Va a sumar ${n} sello${n !== 1 ? "s" : ""}`;
+          }
+        }
+      }
+    } else if (verification.modoAcumulacion === "puntos_por_monto") {
+      const puntosPorUnidad = verification.puntosPorUnidad ?? 1;
+      if (!hasValidMonto) {
+        canSubmitStamp = false;
+        previewSubtext = `${puntosPorUnidad} punto${puntosPorUnidad !== 1 ? "s" : ""} por cada $1`;
+      } else {
+        const p = Math.floor(numMonto * puntosPorUnidad);
+        if (p <= 0) {
+          canSubmitStamp = false;
+          previewSubtext = "El monto no alcanza para sumar puntos";
+        } else {
+          previewText = `+${p} puntos`;
+        }
+      }
+    }
+  }
+
   const handleConfirmarSello = async () => {
     if (!scannedCode) return;
     setStampLoading(true);
 
     try {
+      const payload: { serialNumber: string; monto?: number } = {
+        serialNumber: scannedCode,
+      };
+      if (montoCompra.trim()) {
+        payload.monto = parseFloat(montoCompra);
+      }
+
       const res = await fetch("/api/sellos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serialNumber: scannedCode }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setVerifyError(data.error || "Error al otorgar el sello");
+        setVerifyError(data.error || "Error al otorgar sellos o puntos");
         setStampLoading(false);
         return;
       }
 
       setStampResult({
         clienteNombre: data.clienteNombre,
+        unidad: data.unidad || verification?.unidad || "sellos",
         sellosAcumulados: data.sellosAcumulados,
+        puntosAcumulados: data.puntosAcumulados,
         saldoDisponible: data.saldoDisponible,
+        unidadesOtorgadas: data.unidadesOtorgadas,
+        mensajeTope: data.mensajeTope,
       });
       setStep("SUCCESS_STAMP");
     } catch {
-      setVerifyError("Error de conexión al guardar el sello.");
+      setVerifyError("Error de conexión al guardar.");
     } finally {
       setStampLoading(false);
     }
@@ -194,6 +288,7 @@ export default function EscanearPage() {
       setCanjeResult({
         clienteNombre: verification?.clienteNombre || "Cliente",
         recompensa: data.recompensa,
+        unidad: data.unidad || verification?.unidad || "sellos",
         saldoRestante: data.saldoRestante,
       });
       setCanjeConfirm(null);
@@ -208,6 +303,7 @@ export default function EscanearPage() {
   const handleReset = () => {
     setStep("SCANNING");
     setScannedCode("");
+    setMontoCompra("");
     setVerification(null);
     setVerifyError("");
     setStampResult(null);
@@ -219,6 +315,12 @@ export default function EscanearPage() {
     verification?.recompensas.filter((r) => r.canjeable) || [];
   const recompensasFuturas =
     verification?.recompensas.filter((r) => !r.canjeable) || [];
+
+  const usaMonto =
+    verification?.modoAcumulacion === "sello_por_monto" ||
+    verification?.modoAcumulacion === "puntos_por_monto" ||
+    (verification?.modoAcumulacion === "sello_por_visita" &&
+      !!verification?.montoMinimoSello);
 
   return (
     <main
@@ -259,12 +361,12 @@ export default function EscanearPage() {
               marginBottom: "8px",
             }}
           >
-            FidelityPass Empleado
+            Terminal Empleado
           </div>
           <h1
             style={{
               margin: 0,
-              fontSize: "22px",
+              fontSize: "20px",
               fontWeight: 700,
               color: theme.text.onLight,
             }}
@@ -450,11 +552,12 @@ export default function EscanearPage() {
                       color: theme.text.secondary,
                     }}
                   >
-                    Verificá que el nombre coincida con el cliente presente
+                    Nro. de serie:{" "}
+                    <code style={{ fontWeight: 600 }}>{scannedCode}</code>
                   </p>
                 </div>
 
-                {/* Saldo disponible y total */}
+                {/* Saldos del cliente */}
                 <div
                   style={{
                     display: "grid",
@@ -492,7 +595,7 @@ export default function EscanearPage() {
                         color: "#15803D",
                       }}
                     >
-                      {verification.saldoDisponible} sellos
+                      {verification.saldoDisponible} {verification.unidad}
                     </strong>
                   </div>
 
@@ -525,38 +628,140 @@ export default function EscanearPage() {
                         color: theme.text.onLight,
                       }}
                     >
-                      {verification.sellosAcumulados}
+                      {verification.totalAcumulado ??
+                        verification.sellosAcumulados}
                     </strong>
                   </div>
                 </div>
 
-                {/* Advertencia si ya alcanzó límite de sellos diarios */}
-                {verification.yaSelladoHoy && (
+                {/* Advertencia si ya alcanzó límite de sellos diarios (solo modos con tope) */}
+                {verification.modoAcumulacion !== "puntos_por_monto" &&
+                  verification.yaSelladoHoy && (
+                    <div
+                      id="aviso-limite-diario"
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: "8px",
+                        backgroundColor: "#FEF3C7",
+                        color: "#92400E",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        marginBottom: "16px",
+                        textAlign: "center",
+                      }}
+                    >
+                      Límite diario alcanzado: ya se sumaron{" "}
+                      {verification.sellosHoy} de {verification.maxSellosPorDia}{" "}
+                      sello(s) permitido(s) hoy.
+                    </div>
+                  )}
+
+                {/* INPUT DE MONTO DE LA COMPRA (si el modo lo usa) */}
+                {usaMonto && (
                   <div
-                    id="aviso-limite-diario"
+                    id="contenedor-monto-compra"
                     style={{
-                      padding: "12px 14px",
-                      borderRadius: "8px",
-                      backgroundColor: "#FEF3C7",
-                      color: "#92400E",
-                      fontSize: "13px",
-                      fontWeight: 600,
+                      backgroundColor: "#F8FAFC",
+                      border: "1px solid #E2E8F0",
+                      borderRadius: "12px",
+                      padding: "16px",
                       marginBottom: "16px",
-                      textAlign: "center",
                     }}
                   >
-                    Límite diario alcanzado: ya se sumaron{" "}
-                    {verification.sellosHoy} de {verification.maxSellosPorDia}{" "}
-                    sello(s) permitido(s) hoy.
+                    <label
+                      htmlFor="input-monto-compra"
+                      style={{
+                        display: "block",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: theme.text.onLight,
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Monto de la compra ($)
+                    </label>
+                    <input
+                      id="input-monto-compra"
+                      type="number"
+                      step="any"
+                      min={0}
+                      placeholder="Ingresá el monto de la compra"
+                      value={montoCompra}
+                      onChange={(e) => setMontoCompra(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 14px",
+                        borderRadius: "8px",
+                        border: "1.5px solid #CBD5E1",
+                        fontSize: "16px",
+                        fontWeight: 600,
+                        boxSizing: "border-box",
+                        outline: "none",
+                      }}
+                    />
+
+                    {/* Aviso si modo 1 tiene mínimo configurado */}
+                    {verification.modoAcumulacion === "sello_por_visita" &&
+                      verification.montoMinimoSello && (
+                        <div
+                          id="aviso-monto-minimo"
+                          style={{
+                            marginTop: "8px",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: "#B45309",
+                          }}
+                        >
+                          Mínimo ${verification.montoMinimoSello} para ganar el
+                          sello
+                        </div>
+                      )}
+
+                    {/* Preview en vivo */}
+                    {previewText && (
+                      <div
+                        id="preview-calculo-acumulacion"
+                        style={{
+                          marginTop: "10px",
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          backgroundColor: "#EFF6FF",
+                          border: "1px solid #BFDBFE",
+                          color: "#1E40AF",
+                          fontSize: "14px",
+                          fontWeight: 700,
+                          textAlign: "center",
+                        }}
+                      >
+                        {previewText}
+                      </div>
+                    )}
+                    {!previewText && previewSubtext && (
+                      <div
+                        id="subtext-calculo-acumulacion"
+                        style={{
+                          marginTop: "8px",
+                          fontSize: "12px",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        {previewSubtext}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* BOTÓN SUMAR SELLO */}
+                {/* BOTÓN SUMAR SELLOS / PUNTOS */}
                 <div style={{ marginBottom: "24px" }}>
                   <button
                     type="button"
                     id="btn-confirmar-sello"
-                    disabled={stampLoading || verification.yaSelladoHoy}
+                    disabled={
+                      stampLoading ||
+                      (verification.modoAcumulacion !== "puntos_por_monto" &&
+                        verification.yaSelladoHoy) ||
+                      !canSubmitStamp
+                    }
                     onClick={handleConfirmarSello}
                     style={{
                       width: "100%",
@@ -568,15 +773,31 @@ export default function EscanearPage() {
                       fontSize: "15px",
                       fontWeight: 700,
                       cursor:
-                        stampLoading || verification.yaSelladoHoy
+                        stampLoading ||
+                        (verification.modoAcumulacion !== "puntos_por_monto" &&
+                          verification.yaSelladoHoy) ||
+                        !canSubmitStamp
                           ? "not-allowed"
                           : "pointer",
                       opacity:
-                        stampLoading || verification.yaSelladoHoy ? 0.6 : 1,
+                        stampLoading ||
+                        (verification.modoAcumulacion !== "puntos_por_monto" &&
+                          verification.yaSelladoHoy) ||
+                        !canSubmitStamp
+                          ? 0.6
+                          : 1,
                       boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
                     }}
                   >
-                    {stampLoading ? "Sumando sello..." : "Sumar 1 sello"}
+                    {stampLoading
+                      ? "Procesando..."
+                      : verification.modoAcumulacion === "puntos_por_monto"
+                        ? previewText
+                          ? `Acreditar (${previewText})`
+                          : "Acreditar puntos"
+                        : previewText
+                          ? previewText
+                          : "Sumar 1 sello"}
                   </button>
                 </div>
 
@@ -614,7 +835,7 @@ export default function EscanearPage() {
                     >
                       {verification.recompensas.length === 0
                         ? "El comercio no tiene recompensas activas actualmente."
-                        : `El cliente no tiene sellos suficientes para canjear en este momento (mínimo ${recompensasFuturas[0]?.sellosRequeridos || 0} sellos).`}
+                        : `El cliente no tiene ${verification.unidad} suficientes para canjear en este momento (mínimo ${recompensasFuturas[0]?.costo || 0} ${verification.unidad}).`}
                     </div>
                   ) : (
                     <div
@@ -668,7 +889,7 @@ export default function EscanearPage() {
                                 marginTop: "4px",
                               }}
                             >
-                              Cuesta {r.sellosRequeridos} sellos
+                              Cuesta {r.costo} {verification.unidad}
                             </div>
                           </div>
 
@@ -747,10 +968,8 @@ export default function EscanearPage() {
                                 color: theme.text.secondary,
                               }}
                             >
-                              {r.sellosRequeridos} sellos (faltan{" "}
-                              {r.sellosRequeridos -
-                                verification.saldoDisponible}
-                              )
+                              {r.costo} {verification.unidad} (faltan{" "}
+                              {r.costo - verification.saldoDisponible})
                             </span>
                           </div>
                         ))}
@@ -831,8 +1050,10 @@ export default function EscanearPage() {
                 }}
               >
                 Vas a canjear <strong>{canjeConfirm.nombre}</strong> por{" "}
-                <strong>{canjeConfirm.sellosRequeridos} sellos</strong> para{" "}
-                <strong>{verification.clienteNombre}</strong>.
+                <strong>
+                  {canjeConfirm.costo} {verification.unidad}
+                </strong>{" "}
+                para <strong>{verification.clienteNombre}</strong>.
               </p>
 
               <div
@@ -884,7 +1105,7 @@ export default function EscanearPage() {
           </div>
         )}
 
-        {/* PASO 3A: ÉXITO SELLO */}
+        {/* PASO 3A: ÉXITO SELLO / PUNTOS */}
         {step === "SUCCESS_STAMP" && stampResult && (
           <div style={{ textAlign: "center", padding: "16px 0" }}>
             <div
@@ -913,7 +1134,9 @@ export default function EscanearPage() {
                 color: theme.text.onLight,
               }}
             >
-              ¡Sello sumado!
+              {stampResult.unidad === "puntos"
+                ? "¡Puntos sumados!"
+                : "¡Sello sumado!"}
             </h2>
             <p
               style={{
@@ -925,6 +1148,24 @@ export default function EscanearPage() {
             >
               {stampResult.clienteNombre}
             </p>
+
+            {stampResult.mensajeTope && (
+              <div
+                id="aviso-tope-alcanzado"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#FEF3C7",
+                  color: "#92400E",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  marginBottom: "12px",
+                }}
+              >
+                {stampResult.mensajeTope}
+              </div>
+            )}
+
             <p
               style={{
                 fontSize: "14px",
@@ -934,8 +1175,10 @@ export default function EscanearPage() {
             >
               Saldo disponible:{" "}
               <strong>
-                {stampResult.saldoDisponible ?? stampResult.sellosAcumulados}{" "}
-                sellos
+                {stampResult.saldoDisponible ??
+                  stampResult.puntosAcumulados ??
+                  stampResult.sellosAcumulados}{" "}
+                {stampResult.unidad ?? "sellos"}
               </strong>
             </p>
 
@@ -1021,7 +1264,7 @@ export default function EscanearPage() {
             >
               Saldo restante:{" "}
               <strong id="saldo-restante-canje">
-                {canjeResult.saldoRestante} sellos
+                {canjeResult.saldoRestante} {canjeResult.unidad ?? "sellos"}
               </strong>
             </p>
 

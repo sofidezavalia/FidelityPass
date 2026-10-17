@@ -39,13 +39,19 @@ interface RewardItem {
   merchantId: string;
   nombre: string;
   descripcion: string | null;
-  sellosRequeridos: number;
+  costo: number;
+  sellosRequeridos?: number;
   activa: boolean;
   createdAt: string;
 }
 
 interface ReglasResponse {
   maxSellosPorDia: number;
+  modoAcumulacion: "sello_por_visita" | "sello_por_monto" | "puntos_por_monto";
+  montoMinimoSello: number | null;
+  montoPorSello: number | null;
+  puntosPorUnidad: number | null;
+  tieneMovimientos?: boolean;
 }
 
 interface CampaniaItem {
@@ -168,18 +174,23 @@ export default function PanelPage() {
     }
   }, [personalizacionData]);
 
-  // Estados locales para Recompensas (PR-09)
+  // Estados locales para Recompensas (PR-09 / PR-13)
   const [rewardNombre, setRewardNombre] = useState("");
   const [rewardDescripcion, setRewardDescripcion] = useState("");
-  const [rewardSellosRequeridos, setRewardSellosRequeridos] = useState<
-    number | ""
-  >(10);
+  const [rewardCosto, setRewardCosto] = useState<number | "">(10);
   const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
   const [rewardLoading, setRewardLoading] = useState(false);
   const [rewardError, setRewardError] = useState("");
   const [rewardSuccess, setRewardSuccess] = useState("");
 
-  // Estados locales para Reglas de Sellado (PR-09)
+  // Estados locales para Reglas de Acumulación (PR-13)
+  const [modoAcumulacion, setModoAcumulacion] = useState<
+    "sello_por_visita" | "sello_por_monto" | "puntos_por_monto"
+  >("sello_por_visita");
+  const [montoMinimoSello, setMontoMinimoSello] = useState<string>("");
+  const [montoPorSello, setMontoPorSello] = useState<string>("");
+  const [puntosPorUnidad, setPuntosPorUnidad] = useState<string>("");
+  const [tieneMovimientos, setTieneMovimientos] = useState<boolean>(false);
   const [maxSellosPorDia, setMaxSellosPorDia] = useState<number>(1);
   const [savingReglas, setSavingReglas] = useState(false);
   const [reglasError, setReglasError] = useState("");
@@ -200,10 +211,37 @@ export default function PanelPage() {
   });
 
   useEffect(() => {
-    if (reglasData && typeof reglasData.maxSellosPorDia === "number") {
-      setMaxSellosPorDia(reglasData.maxSellosPorDia);
+    if (reglasData) {
+      if (typeof reglasData.maxSellosPorDia === "number") {
+        setMaxSellosPorDia(reglasData.maxSellosPorDia);
+      }
+      if (reglasData.modoAcumulacion) {
+        setModoAcumulacion(reglasData.modoAcumulacion);
+      }
+      setMontoMinimoSello(
+        reglasData.montoMinimoSello !== null &&
+          reglasData.montoMinimoSello !== undefined
+          ? String(reglasData.montoMinimoSello)
+          : "",
+      );
+      setMontoPorSello(
+        reglasData.montoPorSello !== null &&
+          reglasData.montoPorSello !== undefined
+          ? String(reglasData.montoPorSello)
+          : "",
+      );
+      setPuntosPorUnidad(
+        reglasData.puntosPorUnidad !== null &&
+          reglasData.puntosPorUnidad !== undefined
+          ? String(reglasData.puntosPorUnidad)
+          : "",
+      );
+      setTieneMovimientos(Boolean(reglasData.tieneMovimientos));
     }
   }, [reglasData]);
+
+  const unidadLabel =
+    modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos";
 
   // Estados locales para Campañas (PR-10)
   const [campaniaTitulo, setCampaniaTitulo] = useState("");
@@ -232,7 +270,7 @@ export default function PanelPage() {
     const validation = rewardSchema.safeParse({
       nombre: rewardNombre.trim(),
       descripcion: rewardDescripcion.trim(),
-      sellosRequeridos: Number(rewardSellosRequeridos),
+      costo: Number(rewardCosto),
     });
 
     if (!validation.success) {
@@ -269,7 +307,7 @@ export default function PanelPage() {
       );
       setRewardNombre("");
       setRewardDescripcion("");
-      setRewardSellosRequeridos(10);
+      setRewardCosto(10);
       setEditingRewardId(null);
       queryClient.invalidateQueries({ queryKey: ["panel", "rewards"] });
       setTimeout(() => setRewardSuccess(""), 4000);
@@ -284,7 +322,7 @@ export default function PanelPage() {
     setEditingRewardId(r.id);
     setRewardNombre(r.nombre);
     setRewardDescripcion(r.descripcion || "");
-    setRewardSellosRequeridos(r.sellosRequeridos);
+    setRewardCosto(r.costo ?? r.sellosRequeridos ?? 10);
     setRewardError("");
     setRewardSuccess("");
   };
@@ -293,7 +331,7 @@ export default function PanelPage() {
     setEditingRewardId(null);
     setRewardNombre("");
     setRewardDescripcion("");
-    setRewardSellosRequeridos(10);
+    setRewardCosto(10);
     setRewardError("");
   };
 
@@ -317,13 +355,19 @@ export default function PanelPage() {
     setReglasError("");
     setReglasSuccess("");
 
-    const validation = reglasSchema.safeParse({
+    const payload = {
+      modoAcumulacion,
       maxSellosPorDia: Number(maxSellosPorDia),
-    });
+      montoMinimoSello: montoMinimoSello ? Number(montoMinimoSello) : null,
+      montoPorSello: montoPorSello ? Number(montoPorSello) : null,
+      puntosPorUnidad: puntosPorUnidad ? Number(puntosPorUnidad) : null,
+    };
+
+    const validation = reglasSchema.safeParse(payload);
 
     if (!validation.success) {
       setReglasError(
-        validation.error.issues[0]?.message || "Regla de sellos inválida",
+        validation.error.issues[0]?.message || "Regla de acumulación inválida",
       );
       return;
     }
@@ -343,7 +387,7 @@ export default function PanelPage() {
         return;
       }
 
-      setReglasSuccess("Reglas de sellado actualizadas con éxito.");
+      setReglasSuccess("Reglas guardadas con éxito.");
       queryClient.invalidateQueries({ queryKey: ["panel", "reglas"] });
       setTimeout(() => setReglasSuccess(""), 4000);
     } catch {
@@ -1368,7 +1412,9 @@ export default function PanelPage() {
                                 colorSecundario || theme.colors.celesteBandera,
                             }}
                           >
-                            SELLOS
+                            {modoAcumulacion === "puntos_por_monto"
+                              ? "PUNTOS"
+                              : "SELLOS"}
                           </span>
                           <span
                             style={{
@@ -1380,7 +1426,9 @@ export default function PanelPage() {
                               marginTop: "2px",
                             }}
                           >
-                            5
+                            {modoAcumulacion === "puntos_por_monto"
+                              ? "50"
+                              : "5"}
                           </span>
                         </div>
                       </div>
@@ -1439,7 +1487,7 @@ export default function PanelPage() {
                             marginTop: "2px",
                           }}
                         >
-                          Café gratis (10 sellos)
+                          Café gratis (10 {unidadLabel})
                         </span>
                       </div>
 
@@ -1627,7 +1675,9 @@ export default function PanelPage() {
                             lineHeight: 1.1,
                           }}
                         >
-                          5 sellos
+                          {modoAcumulacion === "puntos_por_monto"
+                            ? "50 puntos"
+                            : "5 sellos"}
                         </span>
                       </div>
 
@@ -1691,7 +1741,7 @@ export default function PanelPage() {
                             color: "#FFFFFF",
                           }}
                         >
-                          Café gratis (10 sellos)
+                          Café gratis (10 {unidadLabel})
                         </span>
                       </div>
 
@@ -2434,16 +2484,22 @@ export default function PanelPage() {
                     marginBottom: "6px",
                   }}
                 >
-                  Sellos requeridos
+                  {modoAcumulacion === "puntos_por_monto"
+                    ? "Puntos requeridos"
+                    : "Sellos requeridos"}
                 </label>
                 <input
                   id="input-sellos-recompensa"
                   type="number"
                   min={1}
-                  placeholder="Ej. 10"
-                  value={rewardSellosRequeridos}
+                  placeholder={
+                    modoAcumulacion === "puntos_por_monto"
+                      ? "Ej. 200"
+                      : "Ej. 10"
+                  }
+                  value={rewardCosto}
                   onChange={(e) =>
-                    setRewardSellosRequeridos(
+                    setRewardCosto(
                       e.target.value === "" ? "" : Number(e.target.value),
                     )
                   }
@@ -2577,7 +2633,11 @@ export default function PanelPage() {
                   >
                     <th style={{ padding: "10px 12px" }}>Nombre</th>
                     <th style={{ padding: "10px 12px" }}>Descripción</th>
-                    <th style={{ padding: "10px 12px" }}>Sellos</th>
+                    <th style={{ padding: "10px 12px" }}>
+                      {modoAcumulacion === "puntos_por_monto"
+                        ? "Puntos"
+                        : "Sellos"}
+                    </th>
                     <th style={{ padding: "10px 12px" }}>Estado</th>
                     <th style={{ padding: "10px 12px", textAlign: "right" }}>
                       Acciones
@@ -2618,7 +2678,7 @@ export default function PanelPage() {
                           color: theme.button.primaryBg,
                         }}
                       >
-                        {r.sellosRequeridos}
+                        {r.costo ?? r.sellosRequeridos}
                       </td>
                       <td style={{ padding: "12px" }}>
                         <span
@@ -2680,7 +2740,7 @@ export default function PanelPage() {
           </div>
         </section>
 
-        {/* SECCIÓN: REGLAS DE SELLADO (PR-09) */}
+        {/* SECCIÓN: REGLAS DE ACUMULACIÓN (PR-09 / PR-13) */}
         <section
           id="seccion-reglas"
           style={{
@@ -2707,7 +2767,7 @@ export default function PanelPage() {
                 marginBottom: "8px",
               }}
             >
-              Reglas anti-fraude
+              Reglas del comercio
             </div>
             <h2
               style={{
@@ -2717,7 +2777,7 @@ export default function PanelPage() {
                 color: theme.text.onLight,
               }}
             >
-              Reglas de sellado
+              Reglas de acumulación
             </h2>
             <p
               style={{
@@ -2726,8 +2786,8 @@ export default function PanelPage() {
                 color: theme.text.secondary,
               }}
             >
-              Configurá el límite de sellos que un cliente puede sumar en un
-              mismo día.
+              Elegí cómo acumulan beneficios tus clientes y configurá las
+              condiciones de sellado o puntos.
             </p>
           </div>
 
@@ -2763,48 +2823,377 @@ export default function PanelPage() {
             </div>
           )}
 
+          {tieneMovimientos && (
+            <div
+              id="aviso-modo-bloqueado"
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                backgroundColor: "#FEF3C7",
+                color: "#92400E",
+                fontSize: "13px",
+                fontWeight: 600,
+                marginBottom: "20px",
+                lineHeight: 1.4,
+              }}
+            >
+              Ya otorgaste sellos o puntos con el modo actual; para cambiarlo
+              escribinos.
+            </div>
+          )}
+
           <form onSubmit={handleGuardarReglas}>
-            <div style={{ maxWidth: "340px", marginBottom: "16px" }}>
-              <label
-                htmlFor="input-max-sellos-por-dia"
-                style={{
-                  display: "block",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  color: theme.text.onLight,
-                  marginBottom: "6px",
-                }}
-              >
-                Máximo de sellos por cliente por día
-              </label>
-              <input
-                id="input-max-sellos-por-dia"
-                type="number"
-                min={1}
-                max={10}
-                value={maxSellosPorDia}
-                onChange={(e) => setMaxSellosPorDia(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: "8px",
-                  border: "1px solid #CBD5E1",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                  outline: "none",
-                }}
-              />
+            {/* Selector de los 3 modos */}
+            <div style={{ marginBottom: "24px" }}>
               <span
                 style={{
                   display: "block",
-                  fontSize: "12px",
-                  color: theme.text.secondary,
-                  marginTop: "4px",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                  marginBottom: "12px",
                 }}
               >
-                Valor por defecto: 1 sello diario. Rango permitido: 1 a 10.
+                Modelo de acumulación
               </span>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                {/* Modo 1: Sello por visita */}
+                <label
+                  htmlFor="modo-sello-por-visita"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${
+                      modoAcumulacion === "sello_por_visita"
+                        ? theme.accent.premium
+                        : "#E2E8F0"
+                    }`,
+                    backgroundColor:
+                      modoAcumulacion === "sello_por_visita"
+                        ? "#F0FDF4"
+                        : "#FFFFFF",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    id="modo-sello-por-visita"
+                    name="modoAcumulacion"
+                    value="sello_por_visita"
+                    checked={modoAcumulacion === "sello_por_visita"}
+                    onChange={() => setModoAcumulacion("sello_por_visita")}
+                    style={{ marginTop: "3px" }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        color: theme.text.onLight,
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Sello por visita
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: theme.text.secondary,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      El cliente gana 1 sello cada vez que viene. Podés exigir
+                      un monto mínimo de compra.
+                    </div>
+
+                    {modoAcumulacion === "sello_por_visita" && (
+                      <div style={{ marginTop: "12px", maxWidth: "280px" }}>
+                        <label
+                          htmlFor="input-monto-minimo-sello"
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: theme.text.onLight,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          Monto mínimo de compra (opcional)
+                        </label>
+                        <input
+                          id="input-monto-minimo-sello"
+                          type="number"
+                          step="any"
+                          min="0"
+                          placeholder="Sin compra mínima"
+                          value={montoMinimoSello}
+                          onChange={(e) => setMontoMinimoSello(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #CBD5E1",
+                            fontSize: "13px",
+                            outline: "none",
+                            backgroundColor: "#FFFFFF",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                {/* Modo 2: Sello cada $X */}
+                <label
+                  htmlFor="modo-sello-por-monto"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${
+                      modoAcumulacion === "sello_por_monto"
+                        ? theme.accent.premium
+                        : "#E2E8F0"
+                    }`,
+                    backgroundColor:
+                      modoAcumulacion === "sello_por_monto"
+                        ? "#F0FDF4"
+                        : "#FFFFFF",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    id="modo-sello-por-monto"
+                    name="modoAcumulacion"
+                    value="sello_por_monto"
+                    checked={modoAcumulacion === "sello_por_monto"}
+                    onChange={() => setModoAcumulacion("sello_por_monto")}
+                    style={{ marginTop: "3px" }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        color: theme.text.onLight,
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Sello cada $X
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: theme.text.secondary,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      El cliente gana 1 sello por cada $X que gaste (ej. 1 sello
+                      cada $500).
+                    </div>
+
+                    {modoAcumulacion === "sello_por_monto" && (
+                      <div style={{ marginTop: "12px", maxWidth: "280px" }}>
+                        <label
+                          htmlFor="input-monto-por-sello"
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: theme.text.onLight,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          Monto por cada sello ($)
+                        </label>
+                        <input
+                          id="input-monto-por-sello"
+                          type="number"
+                          step="any"
+                          min="1"
+                          placeholder="Ej. 500"
+                          value={montoPorSello}
+                          onChange={(e) => setMontoPorSello(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #CBD5E1",
+                            fontSize: "13px",
+                            outline: "none",
+                            backgroundColor: "#FFFFFF",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                {/* Modo 3: Puntos por gasto */}
+                <label
+                  htmlFor="modo-puntos-por-monto"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${
+                      modoAcumulacion === "puntos_por_monto"
+                        ? theme.accent.premium
+                        : "#E2E8F0"
+                    }`,
+                    backgroundColor:
+                      modoAcumulacion === "puntos_por_monto"
+                        ? "#F0FDF4"
+                        : "#FFFFFF",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    id="modo-puntos-por-monto"
+                    name="modoAcumulacion"
+                    value="puntos_por_monto"
+                    checked={modoAcumulacion === "puntos_por_monto"}
+                    onChange={() => setModoAcumulacion("puntos_por_monto")}
+                    style={{ marginTop: "3px" }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        color: theme.text.onLight,
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Puntos por gasto
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: theme.text.secondary,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      El cliente gana puntos por lo que gaste. Vos definís
+                      cuántos puntos por cada $1 (ej. 1 punto por $1).
+                    </div>
+
+                    {modoAcumulacion === "puntos_por_monto" && (
+                      <div style={{ marginTop: "12px", maxWidth: "280px" }}>
+                        <label
+                          htmlFor="input-puntos-por-unidad"
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: theme.text.onLight,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          Puntos por cada $1
+                        </label>
+                        <input
+                          id="input-puntos-por-unidad"
+                          type="number"
+                          step="any"
+                          min="0.01"
+                          placeholder="Ej. 1"
+                          value={puntosPorUnidad}
+                          onChange={(e) => setPuntosPorUnidad(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #CBD5E1",
+                            fontSize: "13px",
+                            outline: "none",
+                            backgroundColor: "#FFFFFF",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
             </div>
+
+            {/* maxSellosPorDia: solo aplica a modos 1 y 2 */}
+            {modoAcumulacion !== "puntos_por_monto" ? (
+              <div style={{ maxWidth: "340px", marginBottom: "20px" }}>
+                <label
+                  htmlFor="input-max-sellos-por-dia"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Máximo de sellos por cliente por día
+                </label>
+                <input
+                  id="input-max-sellos-por-dia"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={maxSellosPorDia}
+                  onChange={(e) => setMaxSellosPorDia(Number(e.target.value))}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #CBD5E1",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    outline: "none",
+                  }}
+                />
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    color: theme.text.secondary,
+                    marginTop: "4px",
+                  }}
+                >
+                  Valor por defecto: 1 sello diario. Rango permitido: 1 a 10.
+                </span>
+              </div>
+            ) : (
+              <div
+                id="aviso-sin-tope-puntos"
+                style={{
+                  maxWidth: "520px",
+                  padding: "12px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#F8FAFC",
+                  border: "1px solid #E2E8F0",
+                  fontSize: "13px",
+                  color: theme.text.secondary,
+                  marginBottom: "20px",
+                }}
+              >
+                En el modo de puntos por gasto no hay tope diario. El cliente
+                acumula según el total gastado en cada compra.
+              </div>
+            )}
 
             <button
               type="submit"

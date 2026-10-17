@@ -1,13 +1,14 @@
 import { canjearSchema } from "@fidelitypass/contracts";
-import { db, passes, redemptions, rewards, stamps } from "@fidelitypass/db";
-import { and, count, eq, sum } from "drizzle-orm";
+import { db, merchants, passes, redemptions, rewards } from "@fidelitypass/db";
+import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
+import { getSaldo } from "../../../lib/saldo";
 import { getAuthenticatedStaff } from "../../../lib/staff-auth";
 
 /**
  * POST /api/canjes
  * Confirma el canje de una recompensa por parte del empleado.
- * Descuenta los sellos requeridos del saldo disponible registrando la redención.
+ * Descuenta el costo (en sellos o puntos) del saldo disponible registrando la redención.
  */
 export async function POST(request: NextRequest) {
   const staffSession = await getAuthenticatedStaff();
@@ -44,8 +45,10 @@ export async function POST(request: NextRequest) {
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
+      modoAcumulacion: merchants.modoAcumulacion,
     })
     .from(passes)
+    .innerJoin(merchants, eq(passes.merchantId, merchants.id))
     .where(eq(passes.serialNumber, serialNumber))
     .limit(1);
 
@@ -89,24 +92,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 3. Calcula saldo disponible = sellos totales - sellos usados
-  const [stampsCount] = await db
-    .select({ total: count() })
-    .from(stamps)
-    .where(eq(stamps.passId, pass.id));
-  const totalSellos = Number(stampsCount?.total ?? 0);
+  // 3. Calcula saldo disponible según el modo de acumulación del comercio
+  const saldo = await getSaldo(pass.id, {
+    modoAcumulacion: pass.modoAcumulacion,
+  });
 
-  const [redemptionsSum] = await db
-    .select({ totalUsados: sum(redemptions.sellosUsados) })
-    .from(redemptions)
-    .where(eq(redemptions.passId, pass.id));
-  const sellosUsados = Number(redemptionsSum?.totalUsados ?? 0);
-
-  const saldoDisponible = Math.max(0, totalSellos - sellosUsados);
-
-  if (saldoDisponible < reward.sellosRequeridos) {
+  if (saldo.disponible < reward.costo) {
     return NextResponse.json(
-      { error: "No tiene sellos suficientes" },
+      { error: `No tiene ${saldo.unidad} suficientes` },
       { status: 409 },
     );
   }
@@ -117,15 +110,17 @@ export async function POST(request: NextRequest) {
     rewardId: reward.id,
     staffId: staffSession.staffId,
     merchantId: staffSession.merchantId,
-    sellosUsados: reward.sellosRequeridos,
+    unidadesUsadas: reward.costo,
   });
 
-  const saldoRestante = saldoDisponible - reward.sellosRequeridos;
+  const saldoRestante = saldo.disponible - reward.costo;
 
   return NextResponse.json(
     {
       ok: true,
       recompensa: reward.nombre,
+      unidad: saldo.unidad,
+      costo: reward.costo,
       saldoRestante,
     },
     { status: 200 },

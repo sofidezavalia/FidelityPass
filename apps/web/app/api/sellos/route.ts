@@ -4,19 +4,20 @@ import {
   db,
   merchants,
   passes,
-  redemptions,
+  pointsLedger,
   rewards,
   stamps,
 } from "@fidelitypass/db";
-import { and, count, eq, gte, sum } from "drizzle-orm";
+import { and, count, eq, gte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
+import { getSaldo } from "../../../lib/saldo";
 import { getAuthenticatedStaff } from "../../../lib/staff-auth";
 import { notifyStampAdded } from "../../../lib/wallet/notifications";
 
 /**
  * GET /api/sellos?serialNumber=...
- * Permite al empleado previsualizar el cliente, estado del pase, saldo disponible
- * y catálogo de recompensas canjeables antes de confirmar el sello o canje.
+ * Permite al empleado previsualizar el cliente, estado del pase, saldo disponible,
+ * modo de acumulación y catálogo de recompensas canjeables antes de confirmar el sello o canje.
  */
 export async function GET(request: NextRequest) {
   const staffSession = await getAuthenticatedStaff();
@@ -37,6 +38,10 @@ export async function GET(request: NextRequest) {
       merchantId: passes.merchantId,
       estado: passes.estado,
       clienteNombre: customers.nombre,
+      modoAcumulacion: merchants.modoAcumulacion,
+      montoMinimoSello: merchants.montoMinimoSello,
+      montoPorSello: merchants.montoPorSello,
+      puntosPorUnidad: merchants.puntosPorUnidad,
       maxSellosPorDia: merchants.maxSellosPorDia,
     })
     .from(passes)
@@ -66,7 +71,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 1. Verificamos los sellos otorgados hoy según la regla configurable
+  // 1. Verificamos los sellos otorgados hoy según la regla configurable (solo modos 1 y 2)
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
@@ -78,30 +83,16 @@ export async function GET(request: NextRequest) {
   const sellosHoy = Number(sellosHoyResult?.total ?? 0);
   const maxSellos = row.maxSellosPorDia ?? 1;
 
-  // 2. Sellos totales acumulados (inmutables)
-  const [totalSellosResult] = await db
-    .select({ total: count() })
-    .from(stamps)
-    .where(eq(stamps.passId, row.id));
-  const totalSellos = Number(totalSellosResult?.total ?? 0);
+  // 2. Saldo disponible y total acumulado según el modo de acumulación
+  const saldo = await getSaldo(row.id, row);
 
-  // 3. Sellos utilizados en canjes
-  const [redemptionsSum] = await db
-    .select({ totalUsados: sum(redemptions.sellosUsados) })
-    .from(redemptions)
-    .where(eq(redemptions.passId, row.id));
-  const totalUsados = Number(redemptionsSum?.totalUsados ?? 0);
-
-  // 4. Saldo disponible = sellos totales − Σ(redemptions.sellosUsados)
-  const saldoDisponible = Math.max(0, totalSellos - totalUsados);
-
-  // 5. Recompensas activas del comercio
+  // 3. Recompensas activas del comercio
   const activeRewards = await db
     .select({
       id: rewards.id,
       nombre: rewards.nombre,
       descripcion: rewards.descripcion,
-      sellosRequeridos: rewards.sellosRequeridos,
+      costo: rewards.costo,
     })
     .from(rewards)
     .where(
@@ -110,28 +101,41 @@ export async function GET(request: NextRequest) {
         eq(rewards.activa, true),
       ),
     )
-    .orderBy(rewards.sellosRequeridos);
+    .orderBy(rewards.costo);
+
+  const yaSelladoHoy =
+    row.modoAcumulacion !== "puntos_por_monto" && sellosHoy >= maxSellos;
 
   return NextResponse.json({
     ok: true,
     passId: row.id,
     clienteNombre: row.clienteNombre,
     estado: row.estado,
-    sellosAcumulados: totalSellos,
-    saldoDisponible,
+    modoAcumulacion: row.modoAcumulacion,
+    montoMinimoSello: row.montoMinimoSello
+      ? Number(row.montoMinimoSello)
+      : null,
+    montoPorSello: row.montoPorSello ? Number(row.montoPorSello) : null,
+    puntosPorUnidad: row.puntosPorUnidad ? Number(row.puntosPorUnidad) : null,
+    unidad: saldo.unidad,
+    totalAcumulado: saldo.totalAcumulado,
+    sellosAcumulados: saldo.totalAcumulado,
+    saldoDisponible: saldo.disponible,
     sellosHoy,
     maxSellosPorDia: maxSellos,
-    yaSelladoHoy: sellosHoy >= maxSellos,
+    yaSelladoHoy,
     recompensas: activeRewards.map((r) => ({
       ...r,
-      canjeable: r.sellosRequeridos <= saldoDisponible,
+      costo: r.costo,
+      sellosRequeridos: r.costo,
+      canjeable: r.costo <= saldo.disponible,
     })),
   });
 }
 
 /**
  * POST /api/sellos
- * Suma un sello a la tarjeta con validación anti-fraude según maxSellosPorDia configurable.
+ * Suma sellos o puntos según el modelo de acumulación del comercio (PR-13).
  */
 export async function POST(request: NextRequest) {
   const staffSession = await getAuthenticatedStaff();
@@ -157,7 +161,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { serialNumber } = validation.data;
+  const { serialNumber, monto } = validation.data;
 
   // 1. Buscamos el pase por serialNumber con los datos del cliente y comercio
   const [row] = await db
@@ -169,6 +173,10 @@ export async function POST(request: NextRequest) {
       googleWalletObjectId: passes.googleWalletObjectId,
       clienteNombre: customers.nombre,
       comercioNombre: merchants.nombre,
+      modoAcumulacion: merchants.modoAcumulacion,
+      montoMinimoSello: merchants.montoMinimoSello,
+      montoPorSello: merchants.montoPorSello,
+      puntosPorUnidad: merchants.puntosPorUnidad,
       maxSellosPorDia: merchants.maxSellosPorDia,
     })
     .from(passes)
@@ -198,57 +206,152 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2. Regla anti-fraude: configurable por comercio (merchants.maxSellosPorDia, default 1)
+  let unidadesOtorgadas = 0;
+  let mensajeTope: string | undefined;
+
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [sellosHoyResult] = await db
-    .select({ total: count() })
-    .from(stamps)
-    .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)));
+  // 2. Lógica según el modo de acumulación
+  if (row.modoAcumulacion === "sello_por_visita") {
+    const minMonto = row.montoMinimoSello ? Number(row.montoMinimoSello) : null;
+    if (minMonto !== null && minMonto > 0) {
+      if (
+        monto === undefined ||
+        monto === null ||
+        Number.isNaN(monto) ||
+        monto < minMonto
+      ) {
+        return NextResponse.json(
+          { error: "La compra no alcanza el mínimo para ganar el sello" },
+          { status: 422 },
+        );
+      }
+    }
 
-  const sellosHoy = Number(sellosHoyResult?.total ?? 0);
-  const maxSellos = row.maxSellosPorDia ?? 1;
+    const [sellosHoyResult] = await db
+      .select({ total: count() })
+      .from(stamps)
+      .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)));
+    const sellosHoy = Number(sellosHoyResult?.total ?? 0);
+    const maxSellos = row.maxSellosPorDia ?? 1;
 
-  if (sellosHoy >= maxSellos) {
-    return NextResponse.json(
-      {
-        error:
-          maxSellos === 1
-            ? "Ya se sumó el sello de hoy para esta tarjeta"
-            : `Ya se alcanzó el límite diario de ${maxSellos} sellos para esta tarjeta`,
-      },
-      { status: 409 },
-    );
+    if (sellosHoy >= maxSellos) {
+      return NextResponse.json(
+        {
+          error:
+            maxSellos === 1
+              ? "Ya se sumó el sello de hoy para esta tarjeta"
+              : `Ya se alcanzó el límite diario de ${maxSellos} sellos para esta tarjeta`,
+        },
+        { status: 409 },
+      );
+    }
+
+    await db.insert(stamps).values({
+      passId: row.id,
+      staffId: staffSession.staffId,
+      merchantId: staffSession.merchantId,
+    });
+    unidadesOtorgadas = 1;
+  } else if (row.modoAcumulacion === "sello_por_monto") {
+    if (monto === undefined || monto === null || Number.isNaN(monto)) {
+      return NextResponse.json(
+        { error: "El monto es obligatorio para este modo" },
+        { status: 422 },
+      );
+    }
+
+    const montoPorSello = Number(row.montoPorSello ?? 0);
+    if (montoPorSello <= 0) {
+      return NextResponse.json(
+        { error: "El comercio no tiene configurado el monto por sello" },
+        { status: 500 },
+      );
+    }
+
+    const n = Math.floor(monto / montoPorSello);
+    if (n === 0) {
+      return NextResponse.json(
+        { error: "El monto no alcanza para ningún sello" },
+        { status: 422 },
+      );
+    }
+
+    const [sellosHoyResult] = await db
+      .select({ total: count() })
+      .from(stamps)
+      .where(and(eq(stamps.passId, row.id), gte(stamps.createdAt, startOfDay)));
+    const sellosHoy = Number(sellosHoyResult?.total ?? 0);
+    const maxSellos = row.maxSellosPorDia ?? 1;
+
+    if (sellosHoy >= maxSellos) {
+      return NextResponse.json(
+        {
+          error: `Ya se alcanzó el límite diario de ${maxSellos} sellos para esta tarjeta`,
+        },
+        { status: 409 },
+      );
+    }
+
+    let aOtorgar = n;
+    if (sellosHoy + n > maxSellos) {
+      aOtorgar = maxSellos - sellosHoy;
+      mensajeTope = `Se acreditaron ${aOtorgar} sello${aOtorgar > 1 ? "s" : ""} (límite diario de ${maxSellos} sellos alcanzado)`;
+    }
+
+    const rows = Array.from({ length: aOtorgar }, () => ({
+      passId: row.id,
+      staffId: staffSession.staffId,
+      merchantId: staffSession.merchantId,
+    }));
+    await db.insert(stamps).values(rows);
+    unidadesOtorgadas = aOtorgar;
+  } else if (row.modoAcumulacion === "puntos_por_monto") {
+    if (monto === undefined || monto === null || Number.isNaN(monto)) {
+      return NextResponse.json(
+        { error: "El monto es obligatorio para este modo" },
+        { status: 422 },
+      );
+    }
+
+    const puntosPorUnidad = Number(row.puntosPorUnidad ?? 0);
+    if (puntosPorUnidad <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "El comercio no tiene configurada la tasa de puntos por unidad",
+        },
+        { status: 500 },
+      );
+    }
+
+    const p = Math.floor(monto * puntosPorUnidad);
+    if (p === 0) {
+      return NextResponse.json(
+        { error: "El monto no alcanza para ningún punto" },
+        { status: 422 },
+      );
+    }
+
+    // Sin tope diario en modo puntos
+    await db.insert(pointsLedger).values({
+      passId: row.id,
+      merchantId: staffSession.merchantId,
+      staffId: staffSession.staffId,
+      puntos: p,
+      montoCompra: monto.toString(),
+    });
+    unidadesOtorgadas = p;
   }
 
-  // 3. Crear el sello inmutable
-  await db.insert(stamps).values({
-    passId: row.id,
-    staffId: staffSession.staffId,
-    merchantId: staffSession.merchantId,
-  });
+  // 3. Calcular saldo actualizado
+  const saldo = await getSaldo(row.id, row);
 
-  // 4. Calcular total actualizado de sellos
-  const [totalResult] = await db
-    .select({ total: count() })
-    .from(stamps)
-    .where(eq(stamps.passId, row.id));
-
-  const sellosAcumulados = Number(totalResult?.total ?? 1);
-
-  // 5. Calcular saldo disponible restando redenciones
-  const [redemptionsSum] = await db
-    .select({ totalUsados: sum(redemptions.sellosUsados) })
-    .from(redemptions)
-    .where(eq(redemptions.passId, row.id));
-  const totalUsados = Number(redemptionsSum?.totalUsados ?? 0);
-  const saldoDisponible = Math.max(0, sellosAcumulados - totalUsados);
-
-  // Hook post-sello: Notificación push transaccional (Google Messages API + Apple Wallet vía protocolo webService)
+  // Hook post-sello: Notificación push
   notifyStampAdded({
     merchantNombre: row.comercioNombre,
-    sellosAcumulados,
+    sellosAcumulados: saldo.totalAcumulado,
     googleWalletObjectId: row.googleWalletObjectId,
     serialNumber: row.serialNumber,
   }).catch((err) => {
@@ -258,8 +361,14 @@ export async function POST(request: NextRequest) {
   const resultado = {
     ok: true as const,
     clienteNombre: row.clienteNombre,
-    sellosAcumulados,
-    saldoDisponible,
+    unidad: saldo.unidad,
+    sellosAcumulados:
+      saldo.unidad === "sellos" ? saldo.totalAcumulado : undefined,
+    puntosAcumulados:
+      saldo.unidad === "puntos" ? saldo.totalAcumulado : undefined,
+    saldoDisponible: saldo.disponible,
+    unidadesOtorgadas,
+    mensajeTope,
   };
 
   const validated = selloResultadoSchema.parse(resultado);

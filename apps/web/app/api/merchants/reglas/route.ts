@@ -1,12 +1,12 @@
 import { reglasSchema } from "@fidelitypass/contracts";
-import { db, merchants } from "@fidelitypass/db";
-import { eq } from "drizzle-orm";
+import { db, merchants, pointsLedger, stamps } from "@fidelitypass/db";
+import { count, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedMerchant } from "../../../../lib/get-authenticated-merchant";
 
 /**
  * GET /api/merchants/reglas
- * Retorna las reglas de sellado configuradas para el comercio.
+ * Retorna las reglas de acumulación y sellado configuradas para el comercio.
  */
 export async function GET() {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -14,14 +14,40 @@ export async function GET() {
     return errorResponse;
   }
 
+  const [stampCount] = await db
+    .select({ count: count() })
+    .from(stamps)
+    .where(eq(stamps.merchantId, merchant.id));
+
+  const [pointCount] = await db
+    .select({ count: count() })
+    .from(pointsLedger)
+    .where(eq(pointsLedger.merchantId, merchant.id));
+
+  const tieneMovimientos =
+    Number(stampCount?.count ?? 0) > 0 || Number(pointCount?.count ?? 0) > 0;
+
   return NextResponse.json({
     maxSellosPorDia: merchant.maxSellosPorDia,
+    modoAcumulacion: merchant.modoAcumulacion,
+    montoMinimoSello: merchant.montoMinimoSello
+      ? Number(merchant.montoMinimoSello)
+      : null,
+    montoPorSello: merchant.montoPorSello
+      ? Number(merchant.montoPorSello)
+      : null,
+    puntosPorUnidad: merchant.puntosPorUnidad
+      ? Number(merchant.puntosPorUnidad)
+      : null,
+    tieneMovimientos,
   });
 }
 
 /**
  * PATCH /api/merchants/reglas
- * Configura la regla anti-fraude maxSellosPorDia para el comercio.
+ * Configura el modelo de acumulación y las reglas asociadas.
+ * Cambio de modo: solo permitido si el comercio todavía no otorgó unidades (sellos ni puntos).
+ * Si ya hay movimientos → 422 "Ya otorgaste sellos/puntos con el modo actual; para cambiarlo escribinos".
  */
 export async function PATCH(request: NextRequest) {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -47,16 +73,84 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const { maxSellosPorDia } = validation.data;
+  const {
+    maxSellosPorDia,
+    modoAcumulacion,
+    montoMinimoSello,
+    montoPorSello,
+    puntosPorUnidad,
+  } = validation.data;
+
+  // Si intenta cambiar de modo, validar que no tenga sellos ni puntos previos
+  if (modoAcumulacion !== merchant.modoAcumulacion) {
+    const [stampCount] = await db
+      .select({ count: count() })
+      .from(stamps)
+      .where(eq(stamps.merchantId, merchant.id));
+
+    const [pointCount] = await db
+      .select({ count: count() })
+      .from(pointsLedger)
+      .where(eq(pointsLedger.merchantId, merchant.id));
+
+    if (
+      Number(stampCount?.count ?? 0) > 0 ||
+      Number(pointCount?.count ?? 0) > 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Ya otorgaste sellos/puntos con el modo actual; para cambiarlo escribinos",
+        },
+        { status: 422 },
+      );
+    }
+  }
 
   const [updated] = await db
     .update(merchants)
-    .set({ maxSellosPorDia })
+    .set({
+      maxSellosPorDia: maxSellosPorDia ?? merchant.maxSellosPorDia,
+      modoAcumulacion,
+      montoMinimoSello:
+        montoMinimoSello !== undefined
+          ? montoMinimoSello !== null
+            ? montoMinimoSello.toString()
+            : null
+          : merchant.montoMinimoSello,
+      montoPorSello:
+        montoPorSello !== undefined
+          ? montoPorSello !== null
+            ? montoPorSello.toString()
+            : null
+          : merchant.montoPorSello,
+      puntosPorUnidad:
+        puntosPorUnidad !== undefined
+          ? puntosPorUnidad !== null
+            ? puntosPorUnidad.toString()
+            : null
+          : merchant.puntosPorUnidad,
+    })
     .where(eq(merchants.id, merchant.id))
-    .returning({ maxSellosPorDia: merchants.maxSellosPorDia });
+    .returning();
+
+  if (!updated) {
+    return NextResponse.json(
+      { error: "Error al actualizar las reglas del comercio" },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,
-    maxSellosPorDia: updated?.maxSellosPorDia ?? maxSellosPorDia,
+    maxSellosPorDia: updated.maxSellosPorDia,
+    modoAcumulacion: updated.modoAcumulacion,
+    montoMinimoSello: updated.montoMinimoSello
+      ? Number(updated.montoMinimoSello)
+      : null,
+    montoPorSello: updated.montoPorSello ? Number(updated.montoPorSello) : null,
+    puntosPorUnidad: updated.puntosPorUnidad
+      ? Number(updated.puntosPorUnidad)
+      : null,
   });
 }

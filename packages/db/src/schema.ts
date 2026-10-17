@@ -3,6 +3,7 @@ import {
   date,
   index,
   integer,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -80,6 +81,13 @@ export const merchants = pgTable("merchants", {
   logoUrl: text("logo_url"), // nullable; URL pública del logo
   colorPrimario: text("color_primario"), // nullable; hex, ej. "#0A2540"
   colorSecundario: text("color_secundario"), // nullable; hex
+  modoAcumulacion: text("modo_acumulacion")
+    .notNull()
+    .default("sello_por_visita"),
+  // valores: 'sello_por_visita' | 'sello_por_monto' | 'puntos_por_monto'
+  montoMinimoSello: numeric("monto_minimo_sello"), // modo 1: compra mínima para ganar el sello (null = sin mínimo)
+  montoPorSello: numeric("monto_por_sello"), // modo 2: 1 sello cada X monto
+  puntosPorUnidad: numeric("puntos_por_unidad"), // modo 3: N puntos por cada $1 (ej. 1)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -188,7 +196,7 @@ export const rewards = pgTable(
       .references(() => merchants.id, { onDelete: "cascade" }),
     nombre: text("nombre").notNull(), // ej. "Café gratis"
     descripcion: text("descripcion"),
-    sellosRequeridos: integer("sellos_requeridos").notNull(), // ej. 10
+    costo: integer("costo").notNull(), // ej. 10 sellos o puntos
     activa: boolean("activa").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -212,7 +220,7 @@ export const redemptions = pgTable(
     merchantId: uuid("merchant_id")
       .notNull()
       .references(() => merchants.id, { onDelete: "cascade" }),
-    sellosUsados: integer("sellos_usados").notNull(),
+    unidadesUsadas: integer("unidades_usadas").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -253,6 +261,28 @@ export const saludosCumple = pgTable(
   (t) => [uniqueIndex("saludos_cumple_customer_anio").on(t.customerId, t.anio)],
 );
 
+// points_ledger: ledger inmutable de puntos acumulados por gasto (PR-13)
+export const pointsLedger = pgTable(
+  "points_ledger",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    passId: uuid("pass_id")
+      .notNull()
+      .references(() => passes.id),
+    merchantId: uuid("merchant_id")
+      .notNull()
+      .references(() => merchants.id),
+    staffId: uuid("staff_id").references(() => staff.id), // null = bono de bienvenida (PR-15)
+    puntos: integer("puntos").notNull(),
+    montoCompra: numeric("monto_compra"), // auditoría, nullable
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("points_ledger_pass_id_idx").on(table.passId),
+    index("points_ledger_merchant_id_idx").on(table.merchantId),
+  ],
+);
+
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
 export type Merchant = typeof merchants.$inferSelect;
@@ -265,3 +295,5 @@ export type Redemption = typeof redemptions.$inferSelect;
 export type Campania = typeof campanias.$inferSelect;
 export type SaludoCumple = typeof saludosCumple.$inferSelect;
 export type NewSaludoCumple = typeof saludosCumple.$inferInsert;
+export type PointLedger = typeof pointsLedger.$inferSelect;
+export type NewPointLedger = typeof pointsLedger.$inferInsert;

@@ -57,15 +57,14 @@ export async function PATCH(request: NextRequest, context: Context) {
   const updatePayload: {
     nombre?: string;
     descripcion?: string | null;
-    sellosRequeridos?: number;
+    costo?: number;
     activa?: boolean;
   } = {};
 
   if (data.nombre !== undefined) updatePayload.nombre = data.nombre;
   if (data.descripcion !== undefined)
     updatePayload.descripcion = data.descripcion || null;
-  if (data.sellosRequeridos !== undefined)
-    updatePayload.sellosRequeridos = data.sellosRequeridos;
+  if (data.costo !== undefined) updatePayload.costo = data.costo;
   if (data.activa !== undefined) updatePayload.activa = data.activa;
 
   const [updated] = await db

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { nombre, descripcion, sellosRequeridos, activa } = validation.data;
+  const { nombre, descripcion, costo, activa } = validation.data;
 
   const [created] = await db
     .insert(rewards)
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       merchantId: merchant.id,
       nombre,
       descripcion: descripcion || null,
-      sellosRequeridos,
+      costo,
       activa: activa ?? true,
     })
     .returning();
