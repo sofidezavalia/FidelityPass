@@ -9,7 +9,7 @@ import { sendCampaign } from "../../../lib/wallet/notifications";
 
 /**
  * GET /api/campanias
- * Retorna el historial de campañas enviadas por el comercio autenticado.
+ * Retorna el historial de campañas enviadas/programadas/borradores del comercio autenticado.
  */
 export async function GET() {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -22,6 +22,8 @@ export async function GET() {
       id: campanias.id,
       titulo: campanias.titulo,
       cuerpo: campanias.cuerpo,
+      estado: campanias.estado,
+      programadaPara: campanias.programadaPara,
       createdAt: campanias.createdAt,
     })
     .from(campanias)
@@ -33,8 +35,10 @@ export async function GET() {
 
 /**
  * POST /api/campanias
- * Envía una campaña push masiva a todas las tarjetas activas del comercio.
- * Si ninguna wallet está configurada, responde 503 "Wallets no configurados" sin guardar la campaña.
+ * Según accion:
+ * - "borrador": guarda en borrador
+ * - "enviar": valida wallets, guarda como enviada y ejecuta fan-out push (PR-10)
+ * - "programar": guarda como programada con programadaPara (futura)
  */
 export async function POST(request: NextRequest) {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -60,6 +64,71 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const { titulo, cuerpo, accion, programadaPara } = validation.data;
+
+  if (accion === "borrador") {
+    const [nueva] = await db
+      .insert(campanias)
+      .values({
+        merchantId: merchant.id,
+        titulo,
+        cuerpo,
+        estado: "borrador",
+        programadaPara: programadaPara ? new Date(programadaPara) : null,
+      })
+      .returning();
+
+    if (!nueva) {
+      return NextResponse.json(
+        { error: "Error al crear la campaña" },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: true, id: nueva.id, estado: "borrador" },
+      { status: 201 },
+    );
+  }
+
+  if (accion === "programar") {
+    if (!programadaPara) {
+      return NextResponse.json(
+        { error: "programadaPara requerida para programar" },
+        { status: 400 },
+      );
+    }
+
+    const [nueva] = await db
+      .insert(campanias)
+      .values({
+        merchantId: merchant.id,
+        titulo,
+        cuerpo,
+        estado: "programada",
+        programadaPara: new Date(programadaPara),
+      })
+      .returning();
+
+    if (!nueva) {
+      return NextResponse.json(
+        { error: "Error al crear la campaña" },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        id: nueva.id,
+        estado: "programada",
+        programadaPara: nueva.programadaPara?.toISOString(),
+      },
+      { status: 201 },
+    );
+  }
+
+  // accion === "enviar"
   // Patrón "integración dormida": si ninguna plataforma de wallet está configurada,
   // responde 503 y NO guarda la campaña en la base de datos.
   if (!isGoogleWalletConfigured() && !isAppleWalletConfigured()) {
@@ -69,14 +138,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { titulo, cuerpo } = validation.data;
+  // 1. Guarda la fila en campanias con estado "enviada"
+  const [nueva] = await db
+    .insert(campanias)
+    .values({
+      merchantId: merchant.id,
+      titulo,
+      cuerpo,
+      estado: "enviada",
+    })
+    .returning();
 
-  // 1. Guarda la fila en campanias
-  await db.insert(campanias).values({
-    merchantId: merchant.id,
-    titulo,
-    cuerpo,
-  });
+  if (!nueva) {
+    return NextResponse.json(
+      { error: "Error al crear la campaña" },
+      { status: 500 },
+    );
+  }
 
   // 2. Fan-out a todos los pases activos del comercio
   const { enviadas } = await sendCampaign({
@@ -85,5 +163,8 @@ export async function POST(request: NextRequest) {
     cuerpo,
   });
 
-  return NextResponse.json({ ok: true, enviadas }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, id: nueva.id, estado: "enviada", enviadas },
+    { status: 201 },
+  );
 }

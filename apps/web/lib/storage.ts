@@ -108,12 +108,13 @@ function signAwsV4Put(params: {
 }
 
 /**
- * Sube el archivo de logo a Object Storage y devuelve su URL pública accesible.
+ * Sube un archivo a Object Storage bajo una subcarpeta dada y devuelve su URL pública accesible.
  */
-export async function uploadLogo(
+async function uploadToStorage(
   buffer: Buffer,
   mimeType: string,
   filename: string,
+  folder: string,
 ): Promise<string> {
   if (!isStorageConfigured()) {
     throw new StorageNoConfiguradoError();
@@ -129,7 +130,7 @@ export async function uploadLogo(
 
   // Generamos un nombre único y sanitizado
   const ext = filename.split(".").pop()?.toLowerCase() || "png";
-  const uniqueKey = `merchants/logos/${crypto.randomUUID()}.${ext}`;
+  const uniqueKey = `merchants/${folder}/${crypto.randomUUID()}.${ext}`;
 
   // Determinamos el host y endpoint S3
   let host = `${bucket}.s3.${region}.amazonaws.com`;
@@ -189,4 +190,26 @@ export async function uploadLogo(
   }
 
   return targetUrl;
+}
+
+/**
+ * Sube el archivo de logo a Object Storage y devuelve su URL pública accesible.
+ */
+export async function uploadLogo(
+  buffer: Buffer,
+  mimeType: string,
+  filename: string,
+): Promise<string> {
+  return uploadToStorage(buffer, mimeType, filename, "logos");
+}
+
+/**
+ * Sube el archivo de banner hero a Object Storage y devuelve su URL pública accesible.
+ */
+export async function uploadHero(
+  buffer: Buffer,
+  mimeType: string,
+  filename: string,
+): Promise<string> {
+  return uploadToStorage(buffer, mimeType, filename, "heroes");
 }

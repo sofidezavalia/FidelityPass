@@ -14,9 +14,11 @@ export async function GET() {
     const rows = await db
       .select({
         id: passes.id,
+        serialNumber: passes.serialNumber,
         codigoCorto: passes.codigoCorto,
         clienteNombre: customers.nombre,
         estado: passes.estado,
+        esPrueba: passes.esPrueba,
         createdAt: passes.createdAt,
         puntosTotal: sum(pointsLedger.puntos),
       })
@@ -26,18 +28,22 @@ export async function GET() {
       .where(eq(passes.merchantId, merchant.id))
       .groupBy(
         passes.id,
+        passes.serialNumber,
         passes.codigoCorto,
         customers.nombre,
         passes.estado,
+        passes.esPrueba,
         passes.createdAt,
       )
       .orderBy(desc(passes.createdAt));
 
     const payload = rows.map((r) => ({
       id: r.id,
+      serialNumber: r.serialNumber,
       codigoCorto: r.codigoCorto,
       clienteNombre: r.clienteNombre,
       estado: r.estado,
+      esPrueba: r.esPrueba,
       sellos: Number(r.puntosTotal ?? 0),
       createdAt: r.createdAt.toISOString(),
     }));
@@ -50,9 +56,11 @@ export async function GET() {
   const rows = await db
     .select({
       id: passes.id,
+      serialNumber: passes.serialNumber,
       codigoCorto: passes.codigoCorto,
       clienteNombre: customers.nombre,
       estado: passes.estado,
+      esPrueba: passes.esPrueba,
       createdAt: passes.createdAt,
       sellosCount: count(stamps.id),
     })
@@ -62,18 +70,22 @@ export async function GET() {
     .where(eq(passes.merchantId, merchant.id))
     .groupBy(
       passes.id,
+      passes.serialNumber,
       passes.codigoCorto,
       customers.nombre,
       passes.estado,
+      passes.esPrueba,
       passes.createdAt,
     )
     .orderBy(desc(passes.createdAt));
 
   const payload = rows.map((r) => ({
     id: r.id,
+    serialNumber: r.serialNumber,
     codigoCorto: r.codigoCorto,
     clienteNombre: r.clienteNombre,
     estado: r.estado,
+    esPrueba: r.esPrueba,
     sellos: Number(r.sellosCount),
     createdAt: r.createdAt.toISOString(),
   }));

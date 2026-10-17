@@ -6,6 +6,7 @@ const hexColor = z
 
 export const personalizacionSchema = z.object({
   logoUrl: z.string().url("URL inválida").optional().or(z.literal("")),
+  heroUrl: z.string().url("URL inválida").optional().or(z.literal("")),
   colorPrimario: hexColor.optional().or(z.literal("")),
   colorSecundario: hexColor.optional().or(z.literal("")),
 });

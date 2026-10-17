@@ -79,6 +79,7 @@ export const merchants = pgTable("merchants", {
   emailContacto: text("email_contacto").notNull(),
   maxSellosPorDia: integer("max_sellos_por_dia").notNull().default(1),
   logoUrl: text("logo_url"), // nullable; URL pública del logo
+  heroUrl: text("hero_url"), // PR-16: nullable; URL pública del banner hero (Google Wallet)
   colorPrimario: text("color_primario"), // nullable; hex, ej. "#0A2540"
   colorSecundario: text("color_secundario"), // nullable; hex
   modoAcumulacion: text("modo_acumulacion")
@@ -136,6 +137,7 @@ export const passes = pgTable(
     googleWalletObjectId: text("google_wallet_object_id"), // lo completa PR-04
     appleAuthToken: text("apple_auth_token"), // token de autenticación para webService de Apple Wallet
     estado: passEstadoEnum("estado").notNull().default("activa"),
+    esPrueba: boolean("es_prueba").notNull().default(false), // PR-16
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("passes_merchant_id_idx").on(table.merchantId)],
@@ -246,11 +248,14 @@ export const campanias = pgTable(
       .references(() => merchants.id, { onDelete: "cascade" }),
     titulo: text("titulo").notNull(),
     cuerpo: text("cuerpo").notNull(),
+    estado: text("estado").notNull().default("borrador"), // PR-16: "borrador" | "programada" | "enviada"
+    programadaPara: timestamp("programada_para"), // PR-16: nullable
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
     index("campanias_merchant_id_idx").on(table.merchantId),
     index("campanias_created_at_idx").on(table.createdAt),
+    index("campanias_programada_para_idx").on(table.programadaPara),
   ],
 );
 

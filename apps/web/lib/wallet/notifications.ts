@@ -218,6 +218,53 @@ export async function sendCampaign(
   return { enviadas: activePasses.length };
 }
 
+export interface SendSinglePassCampaignArgs {
+  serialNumber?: string | null;
+  googleWalletObjectId?: string | null;
+  titulo: string;
+  cuerpo: string;
+}
+
+/**
+ * Envío de campaña de prueba a un único pase específico (Google y/o Apple).
+ */
+export async function sendSinglePassCampaign(
+  args: SendSinglePassCampaignArgs,
+): Promise<{ enviada: boolean }> {
+  const { serialNumber, googleWalletObjectId, titulo, cuerpo } = args;
+
+  const googleConfigured = isGoogleWalletConfigured();
+  const appleConfigured = isAppleWalletConfigured();
+
+  let sent = false;
+
+  if (googleConfigured && googleWalletObjectId) {
+    try {
+      await sendGoogleWalletMessage(googleWalletObjectId, titulo, cuerpo);
+      sent = true;
+    } catch (err) {
+      console.error(
+        `[Campaña de prueba Google Wallet] Error al notificar objeto ${googleWalletObjectId}:`,
+        err,
+      );
+    }
+  }
+
+  if (appleConfigured && serialNumber) {
+    try {
+      await pushStampsUpdate(serialNumber, 0, cuerpo);
+      sent = true;
+    } catch (err) {
+      console.error(
+        `[Campaña de prueba Apple Wallet] Error al notificar serie ${serialNumber}:`,
+        err,
+      );
+    }
+  }
+
+  return { enviada: sent || (!googleConfigured && !appleConfigured) };
+}
+
 /**
  * Envía un push de saludo de cumpleaños al pase activo del cliente.
  * Formato del mensaje:

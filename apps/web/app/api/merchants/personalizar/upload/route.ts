@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedMerchant } from "../../../../../lib/get-authenticated-merchant";
-import { isStorageConfigured, uploadLogo } from "../../../../../lib/storage";
+import {
+  isStorageConfigured,
+  uploadHero,
+  uploadLogo,
+} from "../../../../../lib/storage";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_MIME_TYPES = [
@@ -13,7 +17,7 @@ const ALLOWED_MIME_TYPES = [
 
 /**
  * POST /api/merchants/personalizar/upload
- * Sube el archivo de logo a Object Storage si las credenciales están configuradas.
+ * Sube el archivo de logo o hero banner a Object Storage si las credenciales están configuradas.
  */
 export async function POST(request: NextRequest) {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -34,6 +38,9 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const tipo = (formData.get("tipo") || formData.get("type") || "logo")
+      .toString()
+      .toLowerCase();
 
     if (!file) {
       return NextResponse.json(
@@ -62,13 +69,17 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const logoUrl = await uploadLogo(buffer, file.type, file.name);
+    if (tipo === "hero") {
+      const heroUrl = await uploadHero(buffer, file.type, file.name);
+      return NextResponse.json({ url: heroUrl, heroUrl }, { status: 200 });
+    }
 
-    return NextResponse.json({ logoUrl }, { status: 200 });
+    const logoUrl = await uploadLogo(buffer, file.type, file.name);
+    return NextResponse.json({ url: logoUrl, logoUrl }, { status: 200 });
   } catch (err) {
-    console.error("Error al subir logo:", err);
+    console.error("Error al subir archivo:", err);
     return NextResponse.json(
-      { error: "Error al procesar la subida del logo." },
+      { error: "Error al procesar la subida del archivo." },
       { status: 500 },
     );
   }

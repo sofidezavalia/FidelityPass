@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/cumpleanios",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/campanias",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
