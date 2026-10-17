@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  type ActividadList,
+  type AnalyticsResumen,
   campaniaSchema,
   type DashboardResumen,
   type PaseListItem,
@@ -261,6 +263,69 @@ export default function PanelPage() {
     queryFn: () => fetchJson<CampaniaItem[]>("/api/campanias"),
   });
   const activePassesCount = pases.filter((p) => p.estado === "activa").length;
+
+  // Estados para Analytics (PR-14)
+  const [analyticsDesde, setAnalyticsDesde] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0, 10);
+  });
+  const [analyticsHasta, setAnalyticsHasta] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [analyticsQuery, setAnalyticsQuery] = useState("");
+  const [analyticsPage, setAnalyticsPage] = useState(1);
+  const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
+
+  const handlePreset7Dias = () => {
+    const today = new Date();
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    setAnalyticsDesde(d.toISOString().slice(0, 10));
+    setAnalyticsHasta(today.toISOString().slice(0, 10));
+    setAnalyticsPage(1);
+  };
+
+  const handlePreset30Dias = () => {
+    const today = new Date();
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    setAnalyticsDesde(d.toISOString().slice(0, 10));
+    setAnalyticsHasta(today.toISOString().slice(0, 10));
+    setAnalyticsPage(1);
+  };
+
+  // 9. Resumen Analytics (PR-14)
+  const { data: analyticsResumen, isLoading: analyticsResumenLoading } =
+    useQuery<AnalyticsResumen>({
+      queryKey: ["analytics", "resumen", analyticsDesde, analyticsHasta],
+      queryFn: () =>
+        fetchJson<AnalyticsResumen>(
+          `/api/analytics/resumen?desde=${analyticsDesde}&hasta=${analyticsHasta}`,
+        ),
+    });
+
+  // 10. Actividad unificada (PR-14)
+  const {
+    data: actividadData,
+    isLoading: actividadLoading,
+    isError: actividadError,
+  } = useQuery<ActividadList>({
+    queryKey: [
+      "analytics",
+      "actividad",
+      analyticsDesde,
+      analyticsHasta,
+      analyticsQuery,
+      analyticsPage,
+    ],
+    queryFn: () =>
+      fetchJson<ActividadList>(
+        `/api/analytics/actividad?desde=${analyticsDesde}&hasta=${analyticsHasta}&q=${encodeURIComponent(
+          analyticsQuery,
+        )}&page=${analyticsPage}`,
+      ),
+  });
 
   const handleGuardarRecompensa = async (e: FormEvent) => {
     e.preventDefault();
@@ -3661,6 +3726,930 @@ export default function PanelPage() {
             </div>
           </div>
         )}
+
+        {/* SECCIÓN: ANALYTICS (PR-14) */}
+        <section
+          id="seccion-analytics"
+          style={{
+            backgroundColor: "#FFFFFF",
+            borderRadius: "16px",
+            padding: "28px 32px",
+            marginBottom: "28px",
+            boxShadow: "0 10px 25px -10px rgba(10, 37, 64, 0.05)",
+            border: `1px solid ${theme.colors.niebla}`,
+          }}
+        >
+          {/* Encabezado y controles de rango */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              gap: "16px",
+              marginBottom: "24px",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  display: "inline-block",
+                  padding: "3px 10px",
+                  backgroundColor: "#F0FDF4",
+                  color: "#166534",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  marginBottom: "8px",
+                  border: "1px solid #BBF7D0",
+                }}
+              >
+                Métricas & Actividad
+              </div>
+              <h2
+                style={{
+                  margin: "0 0 6px 0",
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                Analytics del comercio
+              </h2>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: theme.text.secondary,
+                }}
+              >
+                Métricas del programa, evolución diaria y registro unificado de
+                actividad.
+              </p>
+            </div>
+
+            {/* Presets y selector de fechas */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                alignItems: "flex-end",
+              }}
+            >
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  id="btn-preset-7d"
+                  onClick={handlePreset7Dias}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    backgroundColor: "#F8FAFC",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: theme.colors.azulNoche,
+                    cursor: "pointer",
+                  }}
+                >
+                  Últimos 7 días
+                </button>
+                <button
+                  type="button"
+                  id="btn-preset-30d"
+                  onClick={handlePreset30Dias}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    backgroundColor: "#F8FAFC",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: theme.colors.azulNoche,
+                    cursor: "pointer",
+                  }}
+                >
+                  Últimos 30 días
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "13px",
+                  color: theme.text.secondary,
+                }}
+              >
+                <label
+                  htmlFor="input-analytics-desde"
+                  style={{ fontWeight: 600 }}
+                >
+                  Desde:
+                </label>
+                <input
+                  id="input-analytics-desde"
+                  type="date"
+                  value={analyticsDesde}
+                  onChange={(e) => {
+                    setAnalyticsDesde(e.target.value);
+                    setAnalyticsPage(1);
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    fontSize: "13px",
+                    color: theme.text.onLight,
+                  }}
+                />
+                <label
+                  htmlFor="input-analytics-hasta"
+                  style={{ fontWeight: 600 }}
+                >
+                  Hasta:
+                </label>
+                <input
+                  id="input-analytics-hasta"
+                  type="date"
+                  value={analyticsHasta}
+                  onChange={(e) => {
+                    setAnalyticsHasta(e.target.value);
+                    setAnalyticsPage(1);
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    fontSize: "13px",
+                    color: theme.text.onLight,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* KPI Cards (5 métricas con labels dinámicos) */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: "16px",
+              marginBottom: "28px",
+            }}
+          >
+            <div
+              id="kpi-miembros-activos"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                Miembros activos
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: theme.colors.azulNoche,
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : (analyticsResumen?.miembrosActivos ?? 0)}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                Pases activos al momento
+              </span>
+            </div>
+
+            <div
+              id="kpi-nuevos-miembros"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                Nuevos miembros
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: theme.colors.azulNoche,
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : (analyticsResumen?.nuevosMiembros ?? 0)}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                Pases creados en el rango
+              </span>
+            </div>
+
+            <div
+              id="kpi-unidades-otorgadas"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                {analyticsResumen?.unidad === "puntos"
+                  ? "Puntos otorgados"
+                  : "Sellos otorgados"}
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: "#00A68C",
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : (analyticsResumen?.unidadesOtorgadas ?? 0)}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                {analyticsResumen?.unidad === "puntos"
+                  ? "Total de puntos sumados"
+                  : "Total de sellos otorgados"}
+              </span>
+            </div>
+
+            <div
+              id="kpi-canjes"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                Canjes realizados
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: "#8B5CF6",
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : (analyticsResumen?.canjesRealizados ?? 0)}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                Recompensas canjeadas
+              </span>
+            </div>
+
+            <div
+              id="kpi-tasa-canje"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                Tasa de canje
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: "#F59E0B",
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : `${analyticsResumen?.tasaCanje ?? 0}%`}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                Unidades canjeadas / otorgadas
+              </span>
+            </div>
+          </div>
+
+          {/* Gráfico de barras simple serieDiaria (14 barras con divs) */}
+          <div
+            style={{
+              backgroundColor: "#F8FAFC",
+              borderRadius: "14px",
+              border: "1px solid #E2E8F0",
+              padding: "20px 24px",
+              marginBottom: "28px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "16px",
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: "0 0 4px 0",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: theme.text.onLight,
+                  }}
+                >
+                  Evolución diaria de{" "}
+                  {analyticsResumen?.unidad === "puntos" ? "puntos" : "sellos"}
+                </h3>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "13px",
+                    color: theme.text.secondary,
+                  }}
+                >
+                  Últimos 14 días del rango seleccionado
+                </p>
+              </div>
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: theme.colors.azulNoche,
+                  fontWeight: 600,
+                  backgroundColor: "#FFFFFF",
+                  padding: "6px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #E2E8F0",
+                }}
+              >
+                {hoveredBarIndex !== null &&
+                analyticsResumen?.serieDiaria[hoveredBarIndex]
+                  ? `${analyticsResumen.serieDiaria[hoveredBarIndex].fecha}: ${analyticsResumen.serieDiaria[hoveredBarIndex].otorgadas} ${analyticsResumen.unidad}`
+                  : "Pasa el mouse sobre las barras"}
+              </div>
+            </div>
+
+            {/* Contenedor del gráfico */}
+            <div
+              id="grafico-serie-diaria"
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                gap: "8px",
+                height: "170px",
+                paddingTop: "24px",
+                paddingBottom: "8px",
+                borderBottom: "1px solid #CBD5E1",
+              }}
+            >
+              {(analyticsResumen?.serieDiaria ?? []).map((item, idx) => {
+                const serieMax = Math.max(
+                  ...(analyticsResumen?.serieDiaria.map((d) => d.otorgadas) ?? [
+                    1,
+                  ]),
+                  1,
+                );
+                const barHeightPct = Math.round(
+                  (item.otorgadas / serieMax) * 100,
+                );
+                const isHovered = hoveredBarIndex === idx;
+
+                return (
+                  <button
+                    type="button"
+                    key={item.fecha}
+                    onMouseEnter={() => setHoveredBarIndex(idx)}
+                    onMouseLeave={() => setHoveredBarIndex(null)}
+                    onFocus={() => setHoveredBarIndex(idx)}
+                    onBlur={() => setHoveredBarIndex(null)}
+                    aria-label={`${item.fecha}: ${item.otorgadas} ${analyticsResumen?.unidad}`}
+                    style={{
+                      flex: 1,
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "flex-end",
+                      alignItems: "center",
+                      position: "relative",
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isHovered && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          bottom: `calc(${Math.max(barHeightPct, 6)}% + 8px)`,
+                          backgroundColor: theme.colors.azulNoche,
+                          color: "#FFFFFF",
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          whiteSpace: "nowrap",
+                          zIndex: 10,
+                          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                        }}
+                      >
+                        {item.otorgadas}
+                      </div>
+                    )}
+
+                    <div
+                      title={`${item.fecha}: ${item.otorgadas} ${analyticsResumen?.unidad}`}
+                      style={{
+                        width: "100%",
+                        maxWidth: "36px",
+                        height: `${Math.max(barHeightPct, 6)}%`,
+                        background:
+                          item.otorgadas > 0
+                            ? isHovered
+                              ? "#00D4B2"
+                              : "linear-gradient(180deg, #00D4B2 0%, #0A2540 100%)"
+                            : "#E2E8F0",
+                        borderRadius: "4px 4px 0 0",
+                        transition: "all 0.2s ease",
+                        cursor: "pointer",
+                      }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Labels de fechas */}
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                marginTop: "8px",
+              }}
+            >
+              {(analyticsResumen?.serieDiaria ?? []).map((item) => {
+                const parts = item.fecha.split("-");
+                const formattedDate = `${parts[2]}/${parts[1]}`;
+                return (
+                  <div
+                    key={`lbl-${item.fecha}`}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      fontSize: "10px",
+                      fontWeight: 600,
+                      color: theme.text.secondary,
+                    }}
+                  >
+                    {formattedDate}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tabla de Actividad Unificada */}
+          <div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginBottom: "16px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  flex: 1,
+                  maxWidth: "400px",
+                }}
+              >
+                <input
+                  id="input-analytics-q"
+                  type="text"
+                  placeholder="Buscar cliente por nombre..."
+                  value={analyticsQuery}
+                  onChange={(e) => {
+                    setAnalyticsQuery(e.target.value);
+                    setAnalyticsPage(1);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 14px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    fontSize: "14px",
+                    outline: "none",
+                  }}
+                />
+                {analyticsQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnalyticsQuery("");
+                      setAnalyticsPage(1);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: theme.text.secondary,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                    }}
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              <a
+                id="btn-exportar-csv"
+                href={`/api/analytics/actividad.csv?desde=${analyticsDesde}&hasta=${analyticsHasta}&q=${encodeURIComponent(
+                  analyticsQuery,
+                )}`}
+                download="actividad.csv"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  backgroundColor: "#FFFFFF",
+                  color: theme.colors.azulNoche,
+                  border: `1px solid ${theme.colors.niebla}`,
+                  borderRadius: "8px",
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  textDecoration: "none",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                  cursor: "pointer",
+                }}
+              >
+                <span>📥</span> Exportar CSV
+              </a>
+            </div>
+
+            {actividadLoading ? (
+              <p
+                style={{
+                  color: theme.text.secondary,
+                  margin: "24px 0",
+                  textAlign: "center",
+                }}
+              >
+                Cargando registro de actividad...
+              </p>
+            ) : actividadError ? (
+              <p
+                style={{
+                  color: "#DC2626",
+                  margin: "24px 0",
+                  textAlign: "center",
+                }}
+              >
+                No se pudo cargar la actividad.
+              </p>
+            ) : (actividadData?.eventos.length ?? 0) === 0 ? (
+              <div
+                id="empty-actividad"
+                style={{
+                  padding: "36px 16px",
+                  textAlign: "center",
+                  backgroundColor: "#F8FAFC",
+                  borderRadius: "12px",
+                  border: "1px dashed #CBD5E1",
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "14px",
+                    color: theme.text.secondary,
+                    fontWeight: 500,
+                  }}
+                >
+                  No hay actividad registrada en este período.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    overflowX: "auto",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "12px",
+                  }}
+                >
+                  <table
+                    id="tabla-actividad"
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      textAlign: "left",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <thead>
+                      <tr
+                        style={{
+                          backgroundColor: "#F8FAFC",
+                          borderBottom: "1px solid #E2E8F0",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        <th style={{ padding: "12px 16px", fontWeight: 600 }}>
+                          Fecha
+                        </th>
+                        <th style={{ padding: "12px 16px", fontWeight: 600 }}>
+                          Tipo
+                        </th>
+                        <th style={{ padding: "12px 16px", fontWeight: 600 }}>
+                          Cliente
+                        </th>
+                        <th style={{ padding: "12px 16px", fontWeight: 600 }}>
+                          Empleado
+                        </th>
+                        <th style={{ padding: "12px 16px", fontWeight: 600 }}>
+                          Detalle
+                        </th>
+                        <th
+                          style={{
+                            padding: "12px 16px",
+                            fontWeight: 600,
+                            textAlign: "right",
+                          }}
+                        >
+                          Unidades
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {actividadData?.eventos.map((ev) => {
+                        const tipoBadge =
+                          ev.tipo === "emision" ? (
+                            <span
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                backgroundColor: "#EFF6FF",
+                                color: "#1D4ED8",
+                                border: "1px solid #BFDBFE",
+                              }}
+                            >
+                              Emisión
+                            </span>
+                          ) : ev.tipo === "otorgamiento" ? (
+                            <span
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                backgroundColor: "#ECFDF5",
+                                color: "#047857",
+                                border: "1px solid #A7F3D0",
+                              }}
+                            >
+                              Otorgamiento
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                backgroundColor: "#FEF3C7",
+                                color: "#B45309",
+                                border: "1px solid #FDE68A",
+                              }}
+                            >
+                              Canje
+                            </span>
+                          );
+
+                        return (
+                          <tr
+                            key={ev.id}
+                            style={{
+                              borderBottom: "1px solid #F1F5F9",
+                            }}
+                          >
+                            <td
+                              style={{
+                                padding: "12px 16px",
+                                color: theme.text.secondary,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {new Date(ev.fecha).toLocaleString("es-AR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </td>
+                            <td style={{ padding: "12px 16px" }}>
+                              {tipoBadge}
+                            </td>
+                            <td
+                              style={{
+                                padding: "12px 16px",
+                                fontWeight: 600,
+                                color: theme.text.onLight,
+                              }}
+                            >
+                              {ev.cliente}
+                            </td>
+                            <td
+                              style={{
+                                padding: "12px 16px",
+                                color: theme.text.secondary,
+                              }}
+                            >
+                              {ev.empleado || "-"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "12px 16px",
+                                color: theme.text.onLight,
+                              }}
+                            >
+                              {ev.detalle}
+                            </td>
+                            <td
+                              style={{
+                                padding: "12px 16px",
+                                fontWeight: 700,
+                                textAlign: "right",
+                                color:
+                                  ev.tipo === "otorgamiento"
+                                    ? "#059669"
+                                    : ev.tipo === "canje"
+                                      ? "#DC2626"
+                                      : theme.text.secondary,
+                              }}
+                            >
+                              {ev.tipo === "otorgamiento"
+                                ? `+${ev.unidades}`
+                                : ev.tipo === "canje"
+                                  ? `-${ev.unidades}`
+                                  : "0"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginación */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginTop: "16px",
+                    fontSize: "13px",
+                    color: theme.text.secondary,
+                  }}
+                >
+                  <span id="actividad-paginacion-info">
+                    Página {actividadData?.page ?? 1} de{" "}
+                    {actividadData?.totalPages || 1} (
+                    {actividadData?.total ?? 0} eventos)
+                  </span>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      id="btn-actividad-prev"
+                      disabled={(actividadData?.page ?? 1) <= 1}
+                      onClick={() =>
+                        setAnalyticsPage((p) => Math.max(1, p - 1))
+                      }
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "8px",
+                        border: `1px solid ${theme.colors.niebla}`,
+                        backgroundColor:
+                          (actividadData?.page ?? 1) <= 1
+                            ? "#F1F5F9"
+                            : "#FFFFFF",
+                        color:
+                          (actividadData?.page ?? 1) <= 1
+                            ? "#94A3B8"
+                            : theme.colors.azulNoche,
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        cursor:
+                          (actividadData?.page ?? 1) <= 1
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-actividad-next"
+                      disabled={
+                        (actividadData?.page ?? 1) >=
+                        (actividadData?.totalPages || 1)
+                      }
+                      onClick={() => setAnalyticsPage((p) => p + 1)}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "8px",
+                        border: `1px solid ${theme.colors.niebla}`,
+                        backgroundColor:
+                          (actividadData?.page ?? 1) >=
+                          (actividadData?.totalPages || 1)
+                            ? "#F1F5F9"
+                            : "#FFFFFF",
+                        color:
+                          (actividadData?.page ?? 1) >=
+                          (actividadData?.totalPages || 1)
+                            ? "#94A3B8"
+                            : theme.colors.azulNoche,
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        cursor:
+                          (actividadData?.page ?? 1) >=
+                          (actividadData?.totalPages || 1)
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
 
         {/* Tabla: Tarjetas emitidas */}
         <section
