@@ -106,6 +106,8 @@ export const customers = pgTable("customers", {
     .notNull()
     .default(false), // PR-15
   marketingConsentAt: timestamp("marketing_consent_at"), // PR-15
+  terminosAceptadosAt: timestamp("terminos_aceptados_at"), // PR-18
+  privacidadAceptadaAt: timestamp("privacidad_aceptada_at"), // PR-18
   fechaNacimiento: date("fecha_nacimiento"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

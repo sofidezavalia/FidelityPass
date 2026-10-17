@@ -14,6 +14,7 @@ export async function GET() {
     const rows = await db
       .select({
         id: passes.id,
+        customerId: passes.customerId,
         serialNumber: passes.serialNumber,
         codigoCorto: passes.codigoCorto,
         clienteNombre: customers.nombre,
@@ -29,6 +30,7 @@ export async function GET() {
       .where(eq(passes.merchantId, merchant.id))
       .groupBy(
         passes.id,
+        passes.customerId,
         passes.serialNumber,
         passes.codigoCorto,
         customers.nombre,
@@ -41,6 +43,7 @@ export async function GET() {
 
     const payload = rows.map((r) => ({
       id: r.id,
+      customerId: r.customerId,
       serialNumber: r.serialNumber,
       codigoCorto: r.codigoCorto,
       clienteNombre: r.clienteNombre,
@@ -59,6 +62,7 @@ export async function GET() {
   const rows = await db
     .select({
       id: passes.id,
+      customerId: passes.customerId,
       serialNumber: passes.serialNumber,
       codigoCorto: passes.codigoCorto,
       clienteNombre: customers.nombre,
@@ -74,6 +78,7 @@ export async function GET() {
     .where(eq(passes.merchantId, merchant.id))
     .groupBy(
       passes.id,
+      passes.customerId,
       passes.serialNumber,
       passes.codigoCorto,
       customers.nombre,
@@ -86,6 +91,7 @@ export async function GET() {
 
   const payload = rows.map((r) => ({
     id: r.id,
+    customerId: r.customerId,
     serialNumber: r.serialNumber,
     codigoCorto: r.codigoCorto,
     clienteNombre: r.clienteNombre,

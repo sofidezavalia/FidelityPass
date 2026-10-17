@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "../../lib/auth-client";
+import { branding } from "../../lib/branding";
 
 interface StaffItem {
   id: string;
@@ -316,6 +317,9 @@ export default function PanelPage() {
     null,
   );
   const [enviandoWhatsAppId, setEnviandoWhatsAppId] = useState<string | null>(
+    null,
+  );
+  const [eliminandoClienteId, setEliminandoClienteId] = useState<string | null>(
     null,
   );
 
@@ -771,6 +775,37 @@ export default function PanelPage() {
     }
   };
 
+  const handleEliminarCliente = async (pase: PaseListItem) => {
+    const customerId = pase.customerId;
+    if (!customerId) {
+      alert("No se encontró el identificador del cliente");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Se borran todos sus datos. Esta acción no se deshace. ¿Confirmás?",
+    );
+    if (!confirmed) return;
+
+    setEliminandoClienteId(pase.id);
+    try {
+      const res = await fetch(`/api/customers/${customerId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["panel", "pases"] });
+        queryClient.invalidateQueries({ queryKey: ["panel", "resumen"] });
+      } else {
+        const data = await res.json();
+        alert(data.error || "No se pudo eliminar el cliente.");
+      }
+    } catch {
+      alert("Error de conexión al eliminar cliente.");
+    } finally {
+      setEliminandoClienteId(null);
+    }
+  };
+
   const handleEnviarCampaniaExistente = async (id: string) => {
     setEnviandoCampaniaId(id);
     setCampaniaError("");
@@ -1175,7 +1210,7 @@ export default function PanelPage() {
                 marginBottom: "8px",
               }}
             >
-              FidelityPass · Tucumán
+              {branding.nombreApp} · Tucumán
             </div>
             <h1
               id="titulo-panel"
@@ -4765,7 +4800,7 @@ export default function PanelPage() {
                     opacity: campaniaLoading ? 0.7 : 1,
                   }}
                 >
-                  {campaniaLoading ? "Enviando..." : "Enviar ahora"}
+                  {campaniaLoading ? "Enviando..." : "Enviar a mis tarjetas"}
                 </button>
               )}
 
@@ -4812,6 +4847,23 @@ export default function PanelPage() {
                   {campaniaLoading ? "Guardando..." : "Guardar borrador"}
                 </button>
               )}
+            </div>
+
+            <div
+              id="nota-consentimiento-campanias"
+              style={{
+                marginTop: "12px",
+                fontSize: "13px",
+                color: theme.text.secondary,
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              <span>ℹ️</span>
+              <span>
+                Solo les llega a los clientes que aceptaron recibir promos.
+              </span>
             </div>
           </form>
 
@@ -5134,8 +5186,8 @@ export default function PanelPage() {
                 <strong>{alcanceEstimado ?? activePassesCount}</strong>{" "}
                 {(alcanceEstimado ?? activePassesCount) === 1
                   ? "tarjeta"
-                  : "tarjetas"}
-                . ¿Confirmás?
+                  : "tarjetas"}{" "}
+                con promo aceptada. ¿Confirmás?
               </p>
               <p
                 style={{
@@ -6407,7 +6459,7 @@ export default function PanelPage() {
                     <th style={{ padding: "12px 16px" }}>Sellos</th>
                     <th style={{ padding: "12px 16px" }}>Fecha de alta</th>
                     <th style={{ padding: "12px 16px", textAlign: "right" }}>
-                      WhatsApp
+                      Acciones
                     </th>
                   </tr>
                 </thead>
@@ -6470,32 +6522,67 @@ export default function PanelPage() {
                         {new Date(pase.createdAt).toLocaleDateString("es-AR")}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                        <button
-                          type="button"
-                          id={`btn-whatsapp-${pase.id}`}
-                          onClick={() => handleEnviarWhatsApp(pase)}
-                          disabled={enviandoWhatsAppId === pase.id}
+                        <div
                           style={{
-                            backgroundColor: "#25D366",
-                            color: "#FFFFFF",
-                            border: "none",
-                            borderRadius: "6px",
-                            padding: "6px 12px",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            cursor: "pointer",
                             display: "inline-flex",
                             alignItems: "center",
-                            gap: "6px",
+                            gap: "8px",
+                            justifyContent: "flex-end",
                           }}
                         >
-                          <span>💬</span>
-                          <span>
-                            {enviandoWhatsAppId === pase.id
-                              ? "Obteniendo..."
-                              : "Enviar por WhatsApp"}
-                          </span>
-                        </button>
+                          <button
+                            type="button"
+                            id={`btn-whatsapp-${pase.id}`}
+                            onClick={() => handleEnviarWhatsApp(pase)}
+                            disabled={enviandoWhatsAppId === pase.id}
+                            style={{
+                              backgroundColor: "#25D366",
+                              color: "#FFFFFF",
+                              border: "none",
+                              borderRadius: "6px",
+                              padding: "6px 12px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                            }}
+                          >
+                            <span>💬</span>
+                            <span>
+                              {enviandoWhatsAppId === pase.id
+                                ? "Obteniendo..."
+                                : "Enviar por WhatsApp"}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            id={`btn-eliminar-cliente-${pase.id}`}
+                            onClick={() => handleEliminarCliente(pase)}
+                            disabled={eliminandoClienteId === pase.id}
+                            style={{
+                              backgroundColor: "#FEE2E2",
+                              color: "#991B1B",
+                              border: "1px solid #FECACA",
+                              borderRadius: "6px",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              cursor:
+                                eliminandoClienteId === pase.id
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity:
+                                eliminandoClienteId === pase.id ? 0.6 : 1,
+                            }}
+                          >
+                            {eliminandoClienteId === pase.id
+                              ? "Borrando..."
+                              : "Eliminar"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

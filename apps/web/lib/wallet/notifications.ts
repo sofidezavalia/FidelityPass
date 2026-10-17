@@ -203,7 +203,13 @@ export async function getTargetPassesForSegment(
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
-    .where(and(eq(passes.merchantId, merchantId), eq(passes.estado, "activa")));
+    .where(
+      and(
+        eq(passes.merchantId, merchantId),
+        eq(passes.estado, "activa"),
+        eq(customers.consentimientoMarketing, true),
+      ),
+    );
 
   if (segmento === "todos") {
     return baseActivePasses;
@@ -284,7 +290,9 @@ export async function getTargetPassesForSegment(
 }
 
 /**
- * Envío de campaña push masiva a las tarjetas del segmento seleccionado (PR-10 / PR-16 / PR-17).
+ * Envío de campaña push masiva a las tarjetas del segmento seleccionado (PR-10 / PR-16 / PR-17 / PR-18).
+ * Solo alcanza pases con consentimiento de marketing activo.
+ * Cada mensaje termina con el link de baja de promociones.
  * Fan-out independiente:
  * - Google Wallet: Messages API por objeto.
  * - Apple Wallet: push a los dispositivos registrados de cada pase.
@@ -301,6 +309,16 @@ export async function sendCampaign(
   const googleConfigured = isGoogleWalletConfigured();
   const appleConfigured = isAppleWalletConfigured();
 
+  const baseUrl = (
+    process.env.APP_URL ||
+    env.BETTER_AUTH_URL ||
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
+  const optOutNotice = `¿No querés más promos? Da de baja acá: ${baseUrl}/no-quiero-promos?c=${merchantId}`;
+  const cuerpoFinal = cuerpo.includes("/no-quiero-promos")
+    ? cuerpo
+    : `${cuerpo}\n\n${optOutNotice}`;
+
   // Fan-out a las tarjetas del segmento
   for (const pass of targetPasses) {
     // Google Wallet Messages API
@@ -309,7 +327,7 @@ export async function sendCampaign(
         await sendGoogleWalletMessage(
           pass.googleWalletObjectId,
           titulo,
-          cuerpo,
+          cuerpoFinal,
         );
       } catch (err) {
         console.error(
@@ -322,7 +340,7 @@ export async function sendCampaign(
     // Apple Wallet Push a dispositivos registrados
     if (appleConfigured && pass.serialNumber) {
       try {
-        await pushStampsUpdate(pass.serialNumber, 0, cuerpo);
+        await pushStampsUpdate(pass.serialNumber, 0, cuerpoFinal);
       } catch (err) {
         console.error(
           `[Campaña Apple Wallet] Error al notificar serie ${pass.serialNumber}:`,

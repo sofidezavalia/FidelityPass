@@ -11,6 +11,12 @@ export const emitirPaseSchema = z.object({
     .optional()
     .or(z.literal("")),
   consentimientoMarketing: z.boolean().default(false),
+  aceptaTerminos: z.literal(true, {
+    message: "Debés aceptar los Términos y Condiciones",
+  }),
+  aceptaPrivacidad: z.literal(true, {
+    message: "Debés aceptar la Política de Privacidad",
+  }),
 });
 
 export const paseEmitidoSchema = z.object({

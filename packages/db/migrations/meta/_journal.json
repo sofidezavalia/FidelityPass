@@ -85,6 +85,13 @@
       "when": 1792241000000,
       "tag": "0011_segunda_vuelta_tickets_segmentos",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792244000000,
+      "tag": "0012_adecuaciones_legales_consentimientos",
+      "breakpoints": true
     }
   ]
 }
