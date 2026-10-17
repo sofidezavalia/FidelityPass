@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     .select({
       id: merchants.id,
       nombre: merchants.nombre,
+      bonoBienvenida: merchants.bonoBienvenida,
+      modoAcumulacion: merchants.modoAcumulacion,
     })
     .from(merchants)
     .where(eq(merchants.id, merchantId))

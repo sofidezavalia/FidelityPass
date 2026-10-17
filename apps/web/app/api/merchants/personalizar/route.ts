@@ -17,6 +17,7 @@ export async function GET() {
 
   return NextResponse.json({
     logoUrl: merchant.logoUrl || "",
+    heroUrl: merchant.heroUrl || "",
     colorPrimario: merchant.colorPrimario || "",
     colorSecundario: merchant.colorSecundario || "",
     isStorageConfigured: isStorageConfigured(),
@@ -25,7 +26,7 @@ export async function GET() {
 
 /**
  * PATCH /api/merchants/personalizar
- * Guarda logo y colores personalizados para la tarjeta del comercio.
+ * Guarda logo, hero banner y colores personalizados para la tarjeta del comercio.
  * Sesión de comercio requerida. El merchantId se obtiene siempre de la sesión.
  */
 export async function PATCH(request: NextRequest) {
@@ -53,13 +54,16 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const { logoUrl, colorPrimario, colorSecundario } = validation.data;
+  const { logoUrl, heroUrl, colorPrimario, colorSecundario } = validation.data;
 
   // 2. Actualizamos la fila del comercio autenticado
   const [updated] = await db
     .update(merchants)
     .set({
-      logoUrl: logoUrl ? logoUrl.trim() : null,
+      logoUrl:
+        logoUrl !== undefined ? (logoUrl ? logoUrl.trim() : null) : undefined,
+      heroUrl:
+        heroUrl !== undefined ? (heroUrl ? heroUrl.trim() : null) : undefined,
       colorPrimario: colorPrimario ? colorPrimario.trim() : null,
       colorSecundario: colorSecundario ? colorSecundario.trim() : null,
     })
@@ -68,6 +72,7 @@ export async function PATCH(request: NextRequest) {
       id: merchants.id,
       nombre: merchants.nombre,
       logoUrl: merchants.logoUrl,
+      heroUrl: merchants.heroUrl,
       colorPrimario: merchants.colorPrimario,
       colorSecundario: merchants.colorSecundario,
     });

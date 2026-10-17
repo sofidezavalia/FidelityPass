@@ -64,6 +64,12 @@ export const reglasSchema = z
       .positive("Los puntos por unidad deben ser mayor a 0")
       .optional()
       .nullable(),
+    bonoBienvenida: z
+      .number()
+      .int()
+      .min(0, "Mínimo 0 unidades")
+      .default(0)
+      .optional(),
   })
   .superRefine((v, ctx) => {
     if (v.modoAcumulacion === "sello_por_monto" && !v.montoPorSello) {

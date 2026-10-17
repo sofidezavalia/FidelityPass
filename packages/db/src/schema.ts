@@ -79,6 +79,7 @@ export const merchants = pgTable("merchants", {
   emailContacto: text("email_contacto").notNull(),
   maxSellosPorDia: integer("max_sellos_por_dia").notNull().default(1),
   logoUrl: text("logo_url"), // nullable; URL pública del logo
+  heroUrl: text("hero_url"), // PR-16: nullable; URL pública del banner hero (Google Wallet)
   colorPrimario: text("color_primario"), // nullable; hex, ej. "#0A2540"
   colorSecundario: text("color_secundario"), // nullable; hex
   modoAcumulacion: text("modo_acumulacion")
@@ -88,6 +89,7 @@ export const merchants = pgTable("merchants", {
   montoMinimoSello: numeric("monto_minimo_sello"), // modo 1: compra mínima para ganar el sello (null = sin mínimo)
   montoPorSello: numeric("monto_por_sello"), // modo 2: 1 sello cada X monto
   puntosPorUnidad: numeric("puntos_por_unidad"), // modo 3: N puntos por cada $1 (ej. 1)
+  bonoBienvenida: integer("bono_bienvenida").notNull().default(0), // PR-15: unidades de regalo al registrarse
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -96,6 +98,11 @@ export const customers = pgTable("customers", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull(),
   email: text("email"),
+  telefono: text("telefono"), // PR-15
+  consentimientoMarketing: boolean("consentimiento_marketing")
+    .notNull()
+    .default(false), // PR-15
+  marketingConsentAt: timestamp("marketing_consent_at"), // PR-15
   fechaNacimiento: date("fecha_nacimiento"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -126,9 +133,11 @@ export const passes = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     serialNumber: text("serial_number").notNull().unique(), // lo genera PR de emisión
+    codigoCorto: text("codigo_corto").notNull().unique(), // PR-15: 6 chars alfanuméricos sin ambiguos
     googleWalletObjectId: text("google_wallet_object_id"), // lo completa PR-04
     appleAuthToken: text("apple_auth_token"), // token de autenticación para webService de Apple Wallet
     estado: passEstadoEnum("estado").notNull().default("activa"),
+    esPrueba: boolean("es_prueba").notNull().default(false), // PR-16
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("passes_merchant_id_idx").on(table.merchantId)],
@@ -239,11 +248,14 @@ export const campanias = pgTable(
       .references(() => merchants.id, { onDelete: "cascade" }),
     titulo: text("titulo").notNull(),
     cuerpo: text("cuerpo").notNull(),
+    estado: text("estado").notNull().default("borrador"), // PR-16: "borrador" | "programada" | "enviada"
+    programadaPara: timestamp("programada_para"), // PR-16: nullable
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
     index("campanias_merchant_id_idx").on(table.merchantId),
     index("campanias_created_at_idx").on(table.createdAt),
+    index("campanias_programada_para_idx").on(table.programadaPara),
   ],
 );
 

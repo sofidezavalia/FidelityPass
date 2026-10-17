@@ -15,6 +15,8 @@ interface RecompensaItem {
 
 interface PassVerification {
   passId: string;
+  serialNumber?: string;
+  codigoCorto?: string;
   clienteNombre: string;
   estado: string;
   modoAcumulacion: "sello_por_visita" | "sello_por_monto" | "puntos_por_monto";
@@ -45,6 +47,22 @@ export default function EscanearPage() {
   const [stampLoading, setStampLoading] = useState(false);
   const [canjeLoading, setCanjeLoading] = useState(false);
 
+  // Mini libro del turno (PR-15)
+  const [miTurno, setMiTurno] = useState<{
+    operaciones: number;
+    unidadesOtorgadas: number;
+    unidad: "sellos" | "puntos";
+    ultimaOperacion: {
+      cliente: string;
+      haceCuanto: string;
+      unidades: number;
+    } | null;
+  } | null>(null);
+
+  // Ingreso manual por código corto de 6 caracteres (PR-15)
+  const [mostrarCodigoManual, setMostrarCodigoManual] = useState(false);
+  const [codigoManual, setCodigoManual] = useState("");
+
   // Modal de confirmación de canje
   const [canjeConfirm, setCanjeConfirm] = useState<RecompensaItem | null>(null);
 
@@ -69,42 +87,66 @@ export default function EscanearPage() {
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  const handleCodeDetected = useCallback(async (code: string) => {
-    setScannedCode(code);
-    setVerifyLoading(true);
-    setVerifyError("");
-    setMontoCompra("");
-    setStep("VERIFYING");
-
+  const cargarMiTurno = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/sellos?serialNumber=${encodeURIComponent(code)}`,
-      );
-      const data = await res.json();
-
-      if (!res.ok) {
-        setVerifyError(data.error || "Tarjeta no válida");
-        setVerifyLoading(false);
-        return;
+      const res = await fetch("/api/empleado/mi-turno");
+      if (res.ok) {
+        const data = await res.json();
+        setMiTurno(data);
       }
-
-      setVerification({
-        ...data,
-        unidad:
-          data.unidad ||
-          (data.modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos"),
-        recompensas: (data.recompensas || []).map((r: RecompensaItem) => ({
-          ...r,
-          costo: r.costo ?? r.sellosRequeridos,
-          sellosRequeridos: r.costo ?? r.sellosRequeridos,
-        })),
-      });
     } catch {
-      setVerifyError("Error al verificar la tarjeta. Revisá tu conexión.");
-    } finally {
-      setVerifyLoading(false);
+      // Ignorar error de carga de turno
     }
   }, []);
+
+  useEffect(() => {
+    cargarMiTurno();
+  }, [cargarMiTurno]);
+
+  const handleCodeDetected = useCallback(
+    async (code: string, isShortCode = false) => {
+      const trimmed = code.trim();
+      setScannedCode(trimmed);
+      setVerifyLoading(true);
+      setVerifyError("");
+      setMontoCompra("");
+      setStep("VERIFYING");
+
+      try {
+        const isCodigoCorto =
+          isShortCode || (trimmed.length === 6 && !trimmed.startsWith("PASS-"));
+        const param = isCodigoCorto
+          ? `codigoCorto=${encodeURIComponent(trimmed.toUpperCase())}`
+          : `serialNumber=${encodeURIComponent(trimmed)}`;
+
+        const res = await fetch(`/api/sellos?${param}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setVerifyError(data.error || "Tarjeta no válida");
+          setVerifyLoading(false);
+          return;
+        }
+
+        setVerification({
+          ...data,
+          unidad:
+            data.unidad ||
+            (data.modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos"),
+          recompensas: (data.recompensas || []).map((r: RecompensaItem) => ({
+            ...r,
+            costo: r.costo ?? r.sellosRequeridos,
+            sellosRequeridos: r.costo ?? r.sellosRequeridos,
+          })),
+        });
+      } catch {
+        setVerifyError("Error al verificar la tarjeta. Revisá tu conexión.");
+      } finally {
+        setVerifyLoading(false);
+      }
+    },
+    [],
+  );
 
   // Iniciar el escáner de cámara
   useEffect(() => {
@@ -220,13 +262,24 @@ export default function EscanearPage() {
   }
 
   const handleConfirmarSello = async () => {
-    if (!scannedCode) return;
+    if (!scannedCode && !verification) return;
     setStampLoading(true);
 
     try {
-      const payload: { serialNumber: string; monto?: number } = {
-        serialNumber: scannedCode,
-      };
+      const payload: {
+        serialNumber?: string;
+        codigoCorto?: string;
+        monto?: number;
+      } = {};
+
+      if (verification?.serialNumber) {
+        payload.serialNumber = verification.serialNumber;
+      } else if (scannedCode.length === 6 && !scannedCode.startsWith("PASS-")) {
+        payload.codigoCorto = scannedCode.toUpperCase();
+      } else {
+        payload.serialNumber = scannedCode;
+      }
+
       if (montoCompra.trim()) {
         payload.monto = parseFloat(montoCompra);
       }
@@ -255,6 +308,7 @@ export default function EscanearPage() {
         mensajeTope: data.mensajeTope,
       });
       setStep("SUCCESS_STAMP");
+      cargarMiTurno();
     } catch {
       setVerifyError("Error de conexión al guardar.");
     } finally {
@@ -263,15 +317,16 @@ export default function EscanearPage() {
   };
 
   const handleConfirmarCanje = async () => {
-    if (!scannedCode || !canjeConfirm) return;
+    if ((!scannedCode && !verification) || !canjeConfirm) return;
     setCanjeLoading(true);
 
     try {
+      const passSerial = verification?.serialNumber || scannedCode;
       const res = await fetch("/api/canjes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          serialNumber: scannedCode,
+          serialNumber: passSerial,
           rewardId: canjeConfirm.id,
         }),
       });
@@ -293,6 +348,7 @@ export default function EscanearPage() {
       });
       setCanjeConfirm(null);
       setStep("SUCCESS_CANJE");
+      cargarMiTurno();
     } catch {
       setVerifyError("Error de conexión al procesar el canje.");
     } finally {
@@ -303,12 +359,14 @@ export default function EscanearPage() {
   const handleReset = () => {
     setStep("SCANNING");
     setScannedCode("");
+    setCodigoManual("");
     setMontoCompra("");
     setVerification(null);
     setVerifyError("");
     setStampResult(null);
     setCanjeResult(null);
     setCanjeConfirm(null);
+    cargarMiTurno();
   };
 
   const recompensasCanjeables =
@@ -373,6 +431,48 @@ export default function EscanearPage() {
           >
             Escanear Tarjeta de Fidelidad
           </h1>
+
+          {/* Mini libro del turno (PR-15) */}
+          {miTurno && (
+            <div
+              id="resumen-turno-compacto"
+              style={{
+                marginTop: "14px",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                backgroundColor: "#F8FAFC",
+                border: "1px solid #E2E8F0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: "13px",
+              }}
+            >
+              <span
+                id="texto-resumen-turno"
+                style={{
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                Hoy: {miTurno.operaciones} operaciones ·{" "}
+                {miTurno.unidadesOtorgadas} {miTurno.unidad}
+              </span>
+              {miTurno.ultimaOperacion && (
+                <span
+                  id="ultima-operacion-turno"
+                  style={{
+                    fontSize: "11px",
+                    color: theme.text.secondary,
+                  }}
+                  title={`Última: ${miTurno.ultimaOperacion.cliente} (${miTurno.ultimaOperacion.unidades} ${miTurno.unidad})`}
+                >
+                  Última: {miTurno.ultimaOperacion.cliente} (
+                  {miTurno.ultimaOperacion.haceCuanto})
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* PASO 1: ESCANEAR */}
@@ -406,11 +506,130 @@ export default function EscanearPage() {
               </div>
             )}
 
+            {/* Link Ingresar código manual (PR-15) */}
+            <div
+              style={{
+                textAlign: "center",
+                marginTop: "12px",
+                marginBottom: "8px",
+              }}
+            >
+              <button
+                type="button"
+                id="link-ingresar-codigo-manual"
+                onClick={() => setMostrarCodigoManual((prev) => !prev)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: theme.colors.azulNoche,
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  padding: "6px 10px",
+                }}
+              >
+                {mostrarCodigoManual
+                  ? "Ocultar código manual"
+                  : "Ingresar código manual"}
+              </button>
+            </div>
+
+            {mostrarCodigoManual && (
+              <div
+                id="seccion-codigo-manual"
+                style={{
+                  padding: "16px",
+                  borderRadius: "10px",
+                  backgroundColor: "#F8FAFC",
+                  border: "1.5px solid #CBD5E1",
+                  marginBottom: "16px",
+                }}
+              >
+                <label
+                  htmlFor="input-codigo-manual"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Código de 6 caracteres del cliente:
+                </label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    id="input-codigo-manual"
+                    type="text"
+                    maxLength={6}
+                    placeholder="Ej. K7X2PQ"
+                    value={codigoManual}
+                    onChange={(e) =>
+                      setCodigoManual(
+                        e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+                      )
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        codigoManual.trim().length === 6
+                      ) {
+                        handleCodeDetected(
+                          codigoManual.trim().toUpperCase(),
+                          true,
+                        );
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1.5px solid #94A3B8",
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      letterSpacing: "0.15em",
+                      textTransform: "uppercase",
+                      outline: "none",
+                      backgroundColor: "#FFFFFF",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    id="btn-verificar-codigo-manual"
+                    onClick={() =>
+                      handleCodeDetected(
+                        codigoManual.trim().toUpperCase(),
+                        true,
+                      )
+                    }
+                    disabled={codigoManual.trim().length !== 6}
+                    style={{
+                      backgroundColor: theme.button.primaryBg,
+                      color: theme.button.primaryText,
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "10px 18px",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      cursor:
+                        codigoManual.trim().length === 6
+                          ? "pointer"
+                          : "not-allowed",
+                      opacity: codigoManual.trim().length === 6 ? 1 : 0.6,
+                    }}
+                  >
+                    Verificar
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div
               style={{
                 borderTop: `1px solid ${theme.colors.niebla}`,
                 paddingTop: "16px",
-                marginTop: "16px",
+                marginTop: "12px",
               }}
             >
               <label
@@ -419,7 +638,7 @@ export default function EscanearPage() {
                   display: "block",
                   fontSize: "13px",
                   fontWeight: 600,
-                  color: theme.text.onLight,
+                  color: theme.text.secondary,
                   marginBottom: "6px",
                 }}
               >
@@ -545,16 +764,42 @@ export default function EscanearPage() {
                   >
                     {verification.clienteNombre}
                   </div>
-                  <p
+                  <div
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexWrap: "wrap",
+                      gap: "12px",
                       margin: 0,
                       fontSize: "12px",
                       color: theme.text.secondary,
                     }}
                   >
-                    Nro. de serie:{" "}
-                    <code style={{ fontWeight: 600 }}>{scannedCode}</code>
-                  </p>
+                    {verification.codigoCorto && (
+                      <span id="verificacion-codigo-corto">
+                        Código:{" "}
+                        <code
+                          style={{
+                            fontWeight: 700,
+                            color: theme.accent.premium,
+                            fontSize: "13px",
+                            backgroundColor: "#F1F5F9",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                          }}
+                        >
+                          {verification.codigoCorto}
+                        </code>
+                      </span>
+                    )}
+                    <span>
+                      Serie:{" "}
+                      <code style={{ fontWeight: 600 }}>
+                        {verification.serialNumber || scannedCode}
+                      </code>
+                    </span>
+                  </div>
                 </div>
 
                 {/* Saldos del cliente */}

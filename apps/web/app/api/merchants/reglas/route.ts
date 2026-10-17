@@ -39,6 +39,7 @@ export async function GET() {
     puntosPorUnidad: merchant.puntosPorUnidad
       ? Number(merchant.puntosPorUnidad)
       : null,
+    bonoBienvenida: merchant.bonoBienvenida ?? 0,
     tieneMovimientos,
   });
 }
@@ -79,6 +80,7 @@ export async function PATCH(request: NextRequest) {
     montoMinimoSello,
     montoPorSello,
     puntosPorUnidad,
+    bonoBienvenida,
   } = validation.data;
 
   // Si intenta cambiar de modo, validar que no tenga sellos ni puntos previos
@@ -112,6 +114,8 @@ export async function PATCH(request: NextRequest) {
     .set({
       maxSellosPorDia: maxSellosPorDia ?? merchant.maxSellosPorDia,
       modoAcumulacion,
+      bonoBienvenida:
+        bonoBienvenida !== undefined ? bonoBienvenida : merchant.bonoBienvenida,
       montoMinimoSello:
         montoMinimoSello !== undefined
           ? montoMinimoSello !== null
@@ -152,5 +156,6 @@ export async function PATCH(request: NextRequest) {
     puntosPorUnidad: updated.puntosPorUnidad
       ? Number(updated.puntosPorUnidad)
       : null,
+    bonoBienvenida: updated.bonoBienvenida ?? 0,
   });
 }

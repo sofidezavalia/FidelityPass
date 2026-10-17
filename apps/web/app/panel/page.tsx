@@ -31,6 +31,7 @@ interface StaffResponse {
 
 interface PersonalizacionResponse {
   logoUrl: string;
+  heroUrl?: string;
   colorPrimario: string;
   colorSecundario: string;
   isStorageConfigured: boolean;
@@ -53,6 +54,7 @@ interface ReglasResponse {
   montoMinimoSello: number | null;
   montoPorSello: number | null;
   puntosPorUnidad: number | null;
+  bonoBienvenida?: number;
   tieneMovimientos?: boolean;
 }
 
@@ -60,6 +62,8 @@ interface CampaniaItem {
   id: string;
   titulo: string;
   cuerpo: string;
+  estado: "borrador" | "programada" | "enviada";
+  programadaPara?: string | null;
   createdAt: string;
 }
 
@@ -76,8 +80,9 @@ export default function PanelPage() {
   const queryClient = useQueryClient();
   const { data: session, isPending: sessionLoading } = authClient.useSession();
 
-  // Estados locales para personalización de tarjeta (PR-08)
+  // Estados locales para personalización de tarjeta (PR-08 / PR-16)
   const [logoUrl, setLogoUrl] = useState("");
+  const [heroUrl, setHeroUrl] = useState("");
   const [colorPrimario, setColorPrimario] = useState<string>(
     theme.colors.azulNoche,
   );
@@ -87,8 +92,22 @@ export default function PanelPage() {
   const [isStorageEnabled, setIsStorageEnabled] = useState(false);
   const [savingPersonalizacion, setSavingPersonalizacion] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingHero, setUploadingHero] = useState(false);
   const [personalizacionError, setPersonalizacionError] = useState("");
   const [personalizacionSuccess, setPersonalizacionSuccess] = useState("");
+
+  // Estados para pase de prueba (PR-16)
+  const [creandoPasePrueba, setCreandoPasePrueba] = useState(false);
+  const [pasePruebaGenerado, setPasePruebaGenerado] = useState<{
+    id: string;
+    serialNumber: string;
+    codigoCorto: string;
+    saveUrl?: string;
+    downloadUrl?: string;
+  } | null>(null);
+  const [eliminandoPaseId, setEliminandoPaseId] = useState<string | null>(null);
+  const [pasePruebaError, setPasePruebaError] = useState("");
+  const [pasePruebaSuccess, setPasePruebaSuccess] = useState("");
 
   // Estados locales para el alta de empleados y QR
   const [nombreStaff, setNombreStaff] = useState("");
@@ -168,6 +187,7 @@ export default function PanelPage() {
   useEffect(() => {
     if (personalizacionData) {
       if (personalizacionData.logoUrl) setLogoUrl(personalizacionData.logoUrl);
+      if (personalizacionData.heroUrl) setHeroUrl(personalizacionData.heroUrl);
       if (personalizacionData.colorPrimario)
         setColorPrimario(personalizacionData.colorPrimario);
       if (personalizacionData.colorSecundario)
@@ -194,6 +214,7 @@ export default function PanelPage() {
   const [puntosPorUnidad, setPuntosPorUnidad] = useState<string>("");
   const [tieneMovimientos, setTieneMovimientos] = useState<boolean>(false);
   const [maxSellosPorDia, setMaxSellosPorDia] = useState<number>(1);
+  const [bonoBienvenida, setBonoBienvenida] = useState<number>(0);
   const [savingReglas, setSavingReglas] = useState(false);
   const [reglasError, setReglasError] = useState("");
   const [reglasSuccess, setReglasSuccess] = useState("");
@@ -216,6 +237,9 @@ export default function PanelPage() {
     if (reglasData) {
       if (typeof reglasData.maxSellosPorDia === "number") {
         setMaxSellosPorDia(reglasData.maxSellosPorDia);
+      }
+      if (typeof reglasData.bonoBienvenida === "number") {
+        setBonoBienvenida(reglasData.bonoBienvenida);
       }
       if (reglasData.modoAcumulacion) {
         setModoAcumulacion(reglasData.modoAcumulacion);
@@ -245,13 +269,28 @@ export default function PanelPage() {
   const unidadLabel =
     modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos";
 
-  // Estados locales para Campañas (PR-10)
+  // Estados locales para Campañas (PR-10 / PR-16)
   const [campaniaTitulo, setCampaniaTitulo] = useState("");
   const [campaniaCuerpo, setCampaniaCuerpo] = useState("");
+  const [campaniaAccion, setCampaniaAccion] = useState<
+    "enviar" | "programar" | "borrador"
+  >("enviar");
+  const [campaniaProgramadaPara, setCampaniaProgramadaPara] = useState("");
   const [showConfirmCampania, setShowConfirmCampania] = useState(false);
   const [campaniaLoading, setCampaniaLoading] = useState(false);
   const [campaniaError, setCampaniaError] = useState("");
   const [campaniaSuccess, setCampaniaSuccess] = useState("");
+  const [probarCampaniaModal, setProbarCampaniaModal] = useState<{
+    id: string;
+    titulo: string;
+  } | null>(null);
+  const [probarSerialInput, setProbarSerialInput] = useState("");
+  const [probandoCampania, setProbandoCampania] = useState(false);
+  const [probarError, setProbarError] = useState("");
+  const [probarSuccess, setProbarSuccess] = useState("");
+  const [enviandoCampaniaId, setEnviandoCampaniaId] = useState<string | null>(
+    null,
+  );
 
   // 8. Historial de campañas (PR-10)
   const {
@@ -426,6 +465,7 @@ export default function PanelPage() {
       montoMinimoSello: montoMinimoSello ? Number(montoMinimoSello) : null,
       montoPorSello: montoPorSello ? Number(montoPorSello) : null,
       puntosPorUnidad: puntosPorUnidad ? Number(puntosPorUnidad) : null,
+      bonoBienvenida: Number(bonoBienvenida) || 0,
     };
 
     const validation = reglasSchema.safeParse(payload);
@@ -462,24 +502,130 @@ export default function PanelPage() {
     }
   };
 
-  const handlePreConfirmarCampania = (e: FormEvent) => {
-    e.preventDefault();
+  const handleCrearCampania = async (
+    accionTarget?: "enviar" | "programar" | "borrador",
+  ) => {
+    const accion = accionTarget || campaniaAccion;
     setCampaniaError("");
     setCampaniaSuccess("");
 
-    const validation = campaniaSchema.safeParse({
-      titulo: campaniaTitulo.trim(),
-      cuerpo: campaniaCuerpo.trim(),
-    });
+    if (accion === "enviar") {
+      const validation = campaniaSchema.safeParse({
+        titulo: campaniaTitulo.trim(),
+        cuerpo: campaniaCuerpo.trim(),
+        accion: "enviar",
+      });
 
-    if (!validation.success) {
-      setCampaniaError(
-        validation.error.issues[0]?.message || "Datos de campaña inválidos",
-      );
+      if (!validation.success) {
+        setCampaniaError(
+          validation.error.issues[0]?.message || "Datos de campaña inválidos",
+        );
+        return;
+      }
+
+      setShowConfirmCampania(true);
       return;
     }
 
-    setShowConfirmCampania(true);
+    if (accion === "programar") {
+      if (!campaniaProgramadaPara) {
+        setCampaniaError(
+          "Debés seleccionar una fecha y hora futura para programar la campaña.",
+        );
+        return;
+      }
+
+      const isoDate = new Date(campaniaProgramadaPara).toISOString();
+      const validation = campaniaSchema.safeParse({
+        titulo: campaniaTitulo.trim(),
+        cuerpo: campaniaCuerpo.trim(),
+        accion: "programar",
+        programadaPara: isoDate,
+      });
+
+      if (!validation.success) {
+        setCampaniaError(
+          validation.error.issues[0]?.message || "Datos de campaña inválidos",
+        );
+        return;
+      }
+
+      setCampaniaLoading(true);
+      try {
+        const res = await fetch("/api/campanias", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titulo: campaniaTitulo.trim(),
+            cuerpo: campaniaCuerpo.trim(),
+            accion: "programar",
+            programadaPara: isoDate,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setCampaniaError(data.error || "Error al programar la campaña");
+          return;
+        }
+
+        setCampaniaSuccess("Campaña programada con éxito.");
+        setCampaniaTitulo("");
+        setCampaniaCuerpo("");
+        setCampaniaProgramadaPara("");
+        queryClient.invalidateQueries({ queryKey: ["panel", "campanias"] });
+        setTimeout(() => setCampaniaSuccess(""), 5000);
+      } catch {
+        setCampaniaError("Error de conexión al programar la campaña.");
+      } finally {
+        setCampaniaLoading(false);
+      }
+      return;
+    }
+
+    if (accion === "borrador") {
+      const validation = campaniaSchema.safeParse({
+        titulo: campaniaTitulo.trim(),
+        cuerpo: campaniaCuerpo.trim(),
+        accion: "borrador",
+      });
+
+      if (!validation.success) {
+        setCampaniaError(
+          validation.error.issues[0]?.message || "Datos de campaña inválidos",
+        );
+        return;
+      }
+
+      setCampaniaLoading(true);
+      try {
+        const res = await fetch("/api/campanias", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titulo: campaniaTitulo.trim(),
+            cuerpo: campaniaCuerpo.trim(),
+            accion: "borrador",
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setCampaniaError(data.error || "Error al guardar el borrador");
+          return;
+        }
+
+        setCampaniaSuccess("Borrador guardado con éxito.");
+        setCampaniaTitulo("");
+        setCampaniaCuerpo("");
+        queryClient.invalidateQueries({ queryKey: ["panel", "campanias"] });
+        setTimeout(() => setCampaniaSuccess(""), 5000);
+      } catch {
+        setCampaniaError("Error de conexión al guardar el borrador.");
+      } finally {
+        setCampaniaLoading(false);
+      }
+    }
   };
 
   const handleEnviarCampania = async () => {
@@ -494,6 +640,7 @@ export default function PanelPage() {
         body: JSON.stringify({
           titulo: campaniaTitulo.trim(),
           cuerpo: campaniaCuerpo.trim(),
+          accion: "enviar",
         }),
       });
 
@@ -524,6 +671,66 @@ export default function PanelPage() {
     }
   };
 
+  const handleEnviarCampaniaExistente = async (id: string) => {
+    setEnviandoCampaniaId(id);
+    setCampaniaError("");
+    setCampaniaSuccess("");
+    try {
+      const res = await fetch(`/api/campanias/${id}/enviar`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCampaniaError(data.error || "Error al enviar la campaña");
+        return;
+      }
+      setCampaniaSuccess(
+        `Campaña enviada con éxito a ${data.enviadas} tarjeta(s).`,
+      );
+      queryClient.invalidateQueries({ queryKey: ["panel", "campanias"] });
+      setTimeout(() => setCampaniaSuccess(""), 5000);
+    } catch {
+      setCampaniaError("Error de conexión al enviar la campaña.");
+    } finally {
+      setEnviandoCampaniaId(null);
+    }
+  };
+
+  const handleEjecutarPruebaCampania = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!probarCampaniaModal || !probarSerialInput.trim()) return;
+    setProbandoCampania(true);
+    setProbarError("");
+    setProbarSuccess("");
+    try {
+      const res = await fetch(
+        `/api/campanias/${probarCampaniaModal.id}/probar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serialNumber: probarSerialInput.trim() }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setProbarError(data.error || "Error al enviar la prueba");
+        return;
+      }
+      setProbarSuccess(
+        `Campaña de prueba enviada al pase ${data.serialNumber || probarSerialInput.trim()}`,
+      );
+      setTimeout(() => {
+        setProbarCampaniaModal(null);
+        setProbarSerialInput("");
+        setProbarSuccess("");
+      }, 2500);
+    } catch {
+      setProbarError("Error de conexión al enviar la prueba.");
+    } finally {
+      setProbandoCampania(false);
+    }
+  };
+
   const handleGuardarPersonalizacion = async (e: FormEvent) => {
     e.preventDefault();
     setPersonalizacionError("");
@@ -531,6 +738,7 @@ export default function PanelPage() {
 
     const validation = personalizacionSchema.safeParse({
       logoUrl: logoUrl.trim(),
+      heroUrl: heroUrl.trim(),
       colorPrimario: colorPrimario.trim(),
       colorSecundario: colorSecundario.trim(),
     });
@@ -605,7 +813,7 @@ export default function PanelPage() {
         return;
       }
 
-      setLogoUrl(data.logoUrl);
+      setLogoUrl(data.logoUrl || data.url);
       setPersonalizacionSuccess(
         "Logo subido correctamente. Guardá para aplicar los cambios.",
       );
@@ -613,6 +821,108 @@ export default function PanelPage() {
       setPersonalizacionError("Error de conexión al subir el logo.");
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const handleHeroUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!isStorageEnabled) {
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setPersonalizacionError(
+        "El archivo supera el tamaño máximo permitido (2 MB).",
+      );
+      return;
+    }
+
+    setUploadingHero(true);
+    setPersonalizacionError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("tipo", "hero");
+
+    try {
+      const res = await fetch("/api/merchants/personalizar/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPersonalizacionError(data.error || "Error al subir el banner hero");
+        return;
+      }
+
+      setHeroUrl(data.heroUrl || data.url);
+      setPersonalizacionSuccess(
+        "Banner hero subido correctamente. Guardá para aplicar los cambios.",
+      );
+    } catch {
+      setPersonalizacionError("Error de conexión al subir el banner hero.");
+    } finally {
+      setUploadingHero(false);
+    }
+  };
+
+  const handleCrearPasePrueba = async () => {
+    setCreandoPasePrueba(true);
+    setPasePruebaError("");
+    setPasePruebaSuccess("");
+    try {
+      const res = await fetch("/api/pases/probar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPasePruebaError(data.error || "Error al generar pase de prueba");
+        return;
+      }
+
+      setPasePruebaGenerado(data);
+      setPasePruebaSuccess("Pase de prueba generado con éxito.");
+      queryClient.invalidateQueries({ queryKey: ["panel", "pases"] });
+      queryClient.invalidateQueries({ queryKey: ["panel", "dashboard"] });
+    } catch {
+      setPasePruebaError("Error de conexión al generar el pase de prueba.");
+    } finally {
+      setCreandoPasePrueba(false);
+    }
+  };
+
+  const handleEliminarPasePrueba = async (id: string) => {
+    setEliminandoPaseId(id);
+    setPasePruebaError("");
+    setPasePruebaSuccess("");
+    try {
+      const res = await fetch(`/api/pases/${id}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPasePruebaError(data.error || "Error al eliminar pase de prueba");
+        return;
+      }
+
+      setPasePruebaSuccess("Pase de prueba eliminado correctamente.");
+      if (pasePruebaGenerado?.id === id) {
+        setPasePruebaGenerado(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ["panel", "pases"] });
+      queryClient.invalidateQueries({ queryKey: ["panel", "dashboard"] });
+      setTimeout(() => setPasePruebaSuccess(""), 4000);
+    } catch {
+      setPasePruebaError("Error de conexión al eliminar el pase de prueba.");
+    } finally {
+      setEliminandoPaseId(null);
     }
   };
 
@@ -1107,6 +1417,126 @@ export default function PanelPage() {
                     <button
                       type="button"
                       onClick={() => setLogoUrl("")}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #CBD5E1",
+                        backgroundColor: "#FFFFFF",
+                        color: theme.text.secondary,
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Hero Banner Upload & URL (PR-16) */}
+              <div style={{ marginBottom: "20px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <label
+                    htmlFor="input-hero-file"
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: theme.text.onLight,
+                    }}
+                  >
+                    Banner Hero (Google Wallet)
+                  </label>
+                  <span
+                    id="msg-hero-android"
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: theme.accent.premium,
+                    }}
+                  >
+                    El banner solo se muestra en Android
+                  </span>
+                </div>
+                <div style={{ marginBottom: "10px" }}>
+                  <input
+                    type="file"
+                    id="input-hero-file"
+                    accept="image/*"
+                    onChange={handleHeroUpload}
+                    disabled={!isStorageEnabled || uploadingHero}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      fontSize: "13px",
+                      color: theme.text.secondary,
+                      opacity: !isStorageEnabled ? 0.6 : 1,
+                      cursor: !isStorageEnabled ? "not-allowed" : "pointer",
+                    }}
+                  />
+                  {!isStorageEnabled && (
+                    <span
+                      id="msg-storage-disabled-hero"
+                      style={{
+                        display: "block",
+                        fontSize: "12px",
+                        color: "#DC2626",
+                        marginTop: "4px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      El upload se habilita cuando se configure el
+                      almacenamiento
+                    </span>
+                  )}
+                  {uploadingHero && (
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: theme.button.primaryBg,
+                        display: "block",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Subiendo banner hero a storage...
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="url"
+                    id="input-hero-url"
+                    placeholder="O ingresá URL pública del banner (ej. https://...)"
+                    value={heroUrl}
+                    onChange={(e) => setHeroUrl(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #CBD5E1",
+                      fontSize: "13px",
+                      color: theme.text.onLight,
+                      outline: "none",
+                    }}
+                  />
+                  {heroUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setHeroUrl("")}
                       style={{
                         padding: "10px 12px",
                         borderRadius: "8px",
@@ -1714,6 +2144,33 @@ export default function PanelPage() {
                         </span>
                       </div>
 
+                      {/* Hero Image (Android / Google Wallet) (PR-16) */}
+                      {heroUrl && (
+                        <div
+                          id="preview-hero-banner"
+                          style={{
+                            marginBottom: "16px",
+                            borderRadius: "12px",
+                            overflow: "hidden",
+                            height: "90px",
+                            width: "100%",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                          }}
+                        >
+                          {/* biome-ignore lint/performance/noImgElement: Previsualización de hero banner en panel */}
+                          <img
+                            src={heroUrl}
+                            alt="Hero Banner Google Wallet"
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                        </div>
+                      )}
+
                       {/* Balance de puntos: "5 sellos" */}
                       <div style={{ marginBottom: "16px" }}>
                         <span
@@ -1865,6 +2322,351 @@ export default function PanelPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* SECCIÓN: PROBAR MI TARJETA (PR-16) */}
+          <div
+            id="seccion-probar-tarjeta"
+            style={{
+              borderTop: `1px solid ${theme.colors.niebla}`,
+              paddingTop: "28px",
+              marginTop: "32px",
+            }}
+          >
+            <div style={{ marginBottom: "16px" }}>
+              <div
+                style={{
+                  display: "inline-block",
+                  padding: "3px 10px",
+                  borderRadius: "12px",
+                  backgroundColor: "#F3E8FF",
+                  color: "#9333EA",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  marginBottom: "6px",
+                }}
+              >
+                Test & Validación
+              </div>
+              <h3
+                style={{
+                  margin: "0 0 6px 0",
+                  fontSize: "18px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                Probar mi tarjeta
+              </h3>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: theme.text.secondary,
+                }}
+              >
+                Generá un pase de prueba con la personalización actual para
+                verificar en tu propio teléfono cómo luce el diseño y probar el
+                envío de campañas antes de lanzarlas a tus clientes.
+              </p>
+            </div>
+
+            {pasePruebaError && (
+              <div
+                id="error-pase-prueba"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#FEE2E2",
+                  color: "#991B1B",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  marginBottom: "16px",
+                }}
+              >
+                {pasePruebaError}
+              </div>
+            )}
+
+            {pasePruebaSuccess && (
+              <div
+                id="success-pase-prueba"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  backgroundColor: "#DCFCE7",
+                  color: "#166534",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  marginBottom: "16px",
+                }}
+              >
+                {pasePruebaSuccess}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+                marginBottom: "20px",
+              }}
+            >
+              <button
+                type="button"
+                id="btn-crear-pase-prueba"
+                onClick={handleCrearPasePrueba}
+                disabled={creandoPasePrueba}
+                style={{
+                  backgroundColor: "#9333EA",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "10px 20px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: creandoPasePrueba ? "not-allowed" : "pointer",
+                  opacity: creandoPasePrueba ? 0.7 : 1,
+                  boxShadow: "0 4px 12px rgba(147, 51, 234, 0.25)",
+                }}
+              >
+                {creandoPasePrueba
+                  ? "Generando pase..."
+                  : "Generar pase de prueba"}
+              </button>
+            </div>
+
+            {pasePruebaGenerado && (
+              <div
+                id="box-pase-prueba-creado"
+                style={{
+                  padding: "16px",
+                  borderRadius: "12px",
+                  backgroundColor: "#FAF5FF",
+                  border: "1px solid #E9D5FF",
+                  marginBottom: "24px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 700,
+                    color: "#6B21A8",
+                    marginBottom: "8px",
+                  }}
+                >
+                  ¡Pase de prueba creado! Código:{" "}
+                  {pasePruebaGenerado.codigoCorto} (Serial:{" "}
+                  {pasePruebaGenerado.serialNumber})
+                </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {pasePruebaGenerado.saveUrl && (
+                    <a
+                      id="btn-link-google-wallet"
+                      href={pasePruebaGenerado.saveUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        backgroundColor: "#0F172A",
+                        color: "#FFFFFF",
+                        padding: "8px 16px",
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Guardar en Google Wallet
+                    </a>
+                  )}
+                  {pasePruebaGenerado.downloadUrl && (
+                    <a
+                      id="btn-link-apple-wallet"
+                      href={pasePruebaGenerado.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        backgroundColor: "#000000",
+                        color: "#FFFFFF",
+                        padding: "8px 16px",
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Descargar Apple Wallet (.pkpass)
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Lista de pases de prueba */}
+            <div>
+              <h4
+                style={{
+                  margin: "0 0 12px 0",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                Pases de prueba emitidos
+              </h4>
+              {pases.filter((p) => p.esPrueba).length === 0 ? (
+                <p
+                  id="empty-pases-prueba"
+                  style={{
+                    margin: 0,
+                    fontSize: "13px",
+                    color: theme.text.secondary,
+                  }}
+                >
+                  No hay pases de prueba creados todavía.
+                </p>
+              ) : (
+                <div
+                  id="tabla-pases-prueba"
+                  style={{
+                    overflowX: "auto",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    borderRadius: "8px",
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: "13px",
+                      textAlign: "left",
+                    }}
+                  >
+                    <thead>
+                      <tr
+                        style={{
+                          backgroundColor: "#F9FAFB",
+                          borderBottom: `1px solid ${theme.colors.niebla}`,
+                          color: theme.text.secondary,
+                          fontSize: "11px",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        <th style={{ padding: "10px 14px" }}>Tipo</th>
+                        <th style={{ padding: "10px 14px" }}>
+                          Código / Serial
+                        </th>
+                        <th style={{ padding: "10px 14px" }}>Fecha</th>
+                        <th
+                          style={{
+                            padding: "10px 14px",
+                            textAlign: "right",
+                          }}
+                        >
+                          Acción
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pases
+                        .filter((p) => p.esPrueba)
+                        .map((p) => (
+                          <tr
+                            key={p.id}
+                            style={{
+                              borderBottom: `1px solid ${theme.colors.niebla}`,
+                            }}
+                          >
+                            <td style={{ padding: "10px 14px" }}>
+                              <span
+                                className="badge-pase-prueba"
+                                style={{
+                                  display: "inline-block",
+                                  padding: "2px 8px",
+                                  borderRadius: "10px",
+                                  backgroundColor: "#F3E8FF",
+                                  color: "#9333EA",
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  border: "1px solid #E9D5FF",
+                                }}
+                              >
+                                Prueba
+                              </span>
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 14px",
+                                fontFamily: "monospace",
+                                color: theme.text.onLight,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {p.codigoCorto || p.serialNumber || p.id}
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 14px",
+                                color: theme.text.secondary,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {new Date(p.createdAt).toLocaleDateString(
+                                "es-AR",
+                                {
+                                  day: "2-digit",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 14px",
+                                textAlign: "right",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                id={`btn-eliminar-pase-${p.id}`}
+                                disabled={eliminandoPaseId === p.id}
+                                onClick={() => handleEliminarPasePrueba(p.id)}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #FCA5A5",
+                                  backgroundColor: "#FEF2F2",
+                                  color: "#DC2626",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  cursor:
+                                    eliminandoPaseId === p.id
+                                      ? "not-allowed"
+                                      : "pointer",
+                                  opacity: eliminandoPaseId === p.id ? 0.6 : 1,
+                                }}
+                              >
+                                {eliminandoPaseId === p.id
+                                  ? "Eliminando..."
+                                  : "Eliminar"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -3260,6 +4062,55 @@ export default function PanelPage() {
               </div>
             )}
 
+            {/* Bono de bienvenida (PR-15) */}
+            <div style={{ maxWidth: "340px", marginBottom: "24px" }}>
+              <label
+                htmlFor="input-bono-bienvenida"
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                {modoAcumulacion === "puntos_por_monto"
+                  ? "Puntos de bienvenida"
+                  : "Sellos de bienvenida"}
+              </label>
+              <input
+                id="input-bono-bienvenida"
+                type="number"
+                min={0}
+                max={1000}
+                value={bonoBienvenida}
+                onChange={(e) =>
+                  setBonoBienvenida(
+                    Math.max(0, parseInt(e.target.value, 10) || 0),
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  color: theme.text.secondary,
+                  marginTop: "4px",
+                }}
+              >
+                Unidades de regalo al registrarse (0 = desactivado).
+              </span>
+            </div>
+
             <button
               type="submit"
               id="btn-guardar-reglas"
@@ -3351,8 +4202,12 @@ export default function PanelPage() {
           )}
 
           {/* Formulario de Campaña */}
+          {/* Formulario de Campaña (PR-10 / PR-16) */}
           <form
-            onSubmit={handlePreConfirmarCampania}
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCrearCampania();
+            }}
             style={{ marginBottom: "36px" }}
           >
             <div style={{ marginBottom: "16px" }}>
@@ -3463,24 +4318,216 @@ export default function PanelPage() {
               />
             </div>
 
-            <button
-              type="submit"
-              id="btn-enviar-campania"
-              disabled={campaniaLoading}
+            {/* Selector de acción (PR-16) */}
+            <div style={{ marginBottom: "16px" }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "8px",
+                }}
+              >
+                Acción a realizar:
+              </span>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  id="tab-accion-enviar"
+                  onClick={() => setCampaniaAccion("enviar")}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    border: "1px solid",
+                    borderColor:
+                      campaniaAccion === "enviar"
+                        ? theme.button.primaryBg
+                        : "#CBD5E1",
+                    backgroundColor:
+                      campaniaAccion === "enviar"
+                        ? `${theme.button.primaryBg}15`
+                        : "#FFFFFF",
+                    color:
+                      campaniaAccion === "enviar"
+                        ? theme.button.primaryBg
+                        : theme.text.onLight,
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  🚀 Enviar ahora
+                </button>
+                <button
+                  type="button"
+                  id="tab-accion-programar"
+                  onClick={() => setCampaniaAccion("programar")}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    border: "1px solid",
+                    borderColor:
+                      campaniaAccion === "programar"
+                        ? theme.button.primaryBg
+                        : "#CBD5E1",
+                    backgroundColor:
+                      campaniaAccion === "programar"
+                        ? `${theme.button.primaryBg}15`
+                        : "#FFFFFF",
+                    color:
+                      campaniaAccion === "programar"
+                        ? theme.button.primaryBg
+                        : theme.text.onLight,
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ⏰ Programar
+                </button>
+                <button
+                  type="button"
+                  id="tab-accion-borrador"
+                  onClick={() => setCampaniaAccion("borrador")}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    border: "1px solid",
+                    borderColor:
+                      campaniaAccion === "borrador"
+                        ? theme.button.primaryBg
+                        : "#CBD5E1",
+                    backgroundColor:
+                      campaniaAccion === "borrador"
+                        ? `${theme.button.primaryBg}15`
+                        : "#FFFFFF",
+                    color:
+                      campaniaAccion === "borrador"
+                        ? theme.button.primaryBg
+                        : theme.text.onLight,
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  📝 Guardar borrador
+                </button>
+              </div>
+            </div>
+
+            {/* Campo datetime-local cuando la acción es "programar" */}
+            {campaniaAccion === "programar" && (
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="input-campania-programada-para"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Fecha y hora programada (debe ser futura)
+                </label>
+                <input
+                  id="input-campania-programada-para"
+                  type="datetime-local"
+                  value={campaniaProgramadaPara}
+                  onChange={(e) => setCampaniaProgramadaPara(e.target.value)}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: `1px solid ${theme.colors.niebla}`,
+                    fontSize: "14px",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Botones de acción */}
+            <div
               style={{
-                backgroundColor: theme.button.primaryBg,
-                color: theme.button.primaryText,
-                border: "none",
-                borderRadius: "8px",
-                padding: "10px 24px",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: campaniaLoading ? "not-allowed" : "pointer",
-                opacity: campaniaLoading ? 0.7 : 1,
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                alignItems: "center",
               }}
             >
-              Enviar a todas mis tarjetas
-            </button>
+              {campaniaAccion === "enviar" && (
+                <button
+                  type="button"
+                  id="btn-enviar-campania"
+                  disabled={campaniaLoading}
+                  onClick={() => handleCrearCampania("enviar")}
+                  style={{
+                    backgroundColor: theme.button.primaryBg,
+                    color: theme.button.primaryText,
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "10px 24px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: campaniaLoading ? "not-allowed" : "pointer",
+                    opacity: campaniaLoading ? 0.7 : 1,
+                  }}
+                >
+                  {campaniaLoading ? "Enviando..." : "Enviar ahora"}
+                </button>
+              )}
+
+              {campaniaAccion === "programar" && (
+                <button
+                  type="button"
+                  id="btn-programar-campania"
+                  disabled={campaniaLoading}
+                  onClick={() => handleCrearCampania("programar")}
+                  style={{
+                    backgroundColor: "#2563EB",
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "10px 24px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: campaniaLoading ? "not-allowed" : "pointer",
+                    opacity: campaniaLoading ? 0.7 : 1,
+                  }}
+                >
+                  {campaniaLoading ? "Programando..." : "Programar campaña"}
+                </button>
+              )}
+
+              {campaniaAccion === "borrador" && (
+                <button
+                  type="button"
+                  id="btn-guardar-borrador"
+                  disabled={campaniaLoading}
+                  onClick={() => handleCrearCampania("borrador")}
+                  style={{
+                    backgroundColor: "#475569",
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "10px 24px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: campaniaLoading ? "not-allowed" : "pointer",
+                    opacity: campaniaLoading ? 0.7 : 1,
+                  }}
+                >
+                  {campaniaLoading ? "Guardando..." : "Guardar borrador"}
+                </button>
+              )}
+            </div>
           </form>
 
           {/* Historial de campañas */}
@@ -3498,7 +4545,7 @@ export default function PanelPage() {
                 color: theme.text.onLight,
               }}
             >
-              Historial de campañas enviadas
+              Historial de campañas
             </h3>
 
             {campaniasLoading ? (
@@ -3524,7 +4571,7 @@ export default function PanelPage() {
                   margin: 0,
                 }}
               >
-                Aún no has enviado ninguna campaña.
+                Aún no has creado ninguna campaña.
               </p>
             ) : (
               <div
@@ -3555,7 +4602,16 @@ export default function PanelPage() {
                     >
                       <th style={{ padding: "12px 16px" }}>Título</th>
                       <th style={{ padding: "12px 16px" }}>Mensaje</th>
+                      <th style={{ padding: "12px 16px" }}>Estado</th>
                       <th style={{ padding: "12px 16px" }}>Fecha</th>
+                      <th
+                        style={{
+                          padding: "12px 16px",
+                          textAlign: "right",
+                        }}
+                      >
+                        Acciones
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3579,28 +4635,158 @@ export default function PanelPage() {
                           style={{
                             padding: "12px 16px",
                             color: theme.text.secondary,
-                            maxWidth: "400px",
+                            maxWidth: "340px",
                           }}
                         >
                           {campania.cuerpo}
+                        </td>
+                        <td style={{ padding: "12px 16px" }}>
+                          {campania.estado === "borrador" && (
+                            <span
+                              className="badge-campania-borrador"
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "10px",
+                                backgroundColor: "#F1F5F9",
+                                color: "#475569",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                border: "1px solid #CBD5E1",
+                              }}
+                            >
+                              Borrador
+                            </span>
+                          )}
+                          {campania.estado === "programada" && (
+                            <span
+                              className="badge-campania-programada"
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "10px",
+                                backgroundColor: "#EFF6FF",
+                                color: "#1D4ED8",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                border: "1px solid #BFDBFE",
+                              }}
+                            >
+                              Programada
+                            </span>
+                          )}
+                          {(!campania.estado ||
+                            campania.estado === "enviada") && (
+                            <span
+                              className="badge-campania-enviada"
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "10px",
+                                backgroundColor: "#ECFDF5",
+                                color: "#065F46",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                border: "1px solid #A7F3D0",
+                              }}
+                            >
+                              Enviada
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{
                             padding: "12px 16px",
                             color: theme.text.secondary,
                             whiteSpace: "nowrap",
+                            fontSize: "13px",
                           }}
                         >
-                          {new Date(campania.createdAt).toLocaleString(
-                            "es-AR",
-                            {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
-                          )}
+                          {campania.estado === "programada" &&
+                          campania.programadaPara
+                            ? `Programada: ${new Date(campania.programadaPara).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`
+                            : new Date(campania.createdAt).toLocaleString(
+                                "es-AR",
+                                {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
+                        </td>
+                        <td
+                          style={{
+                            padding: "12px 16px",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              gap: "8px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              id={`btn-probar-campania-${campania.id}`}
+                              onClick={() => {
+                                setProbarCampaniaModal({
+                                  id: campania.id,
+                                  titulo: campania.titulo,
+                                });
+                                setProbarSerialInput("");
+                                setProbarError("");
+                                setProbarSuccess("");
+                              }}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "6px",
+                                border: "1px solid #CBD5E1",
+                                backgroundColor: "#FFFFFF",
+                                color: theme.text.onLight,
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Probar
+                            </button>
+                            {campania.estado !== "enviada" && (
+                              <button
+                                type="button"
+                                id={`btn-enviar-ahora-${campania.id}`}
+                                disabled={enviandoCampaniaId === campania.id}
+                                onClick={() =>
+                                  handleEnviarCampaniaExistente(campania.id)
+                                }
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  border: "none",
+                                  backgroundColor: theme.button.primaryBg,
+                                  color: theme.button.primaryText,
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  cursor:
+                                    enviandoCampaniaId === campania.id
+                                      ? "not-allowed"
+                                      : "pointer",
+                                  opacity:
+                                    enviandoCampaniaId === campania.id
+                                      ? 0.7
+                                      : 1,
+                                }}
+                              >
+                                {enviandoCampaniaId === campania.id
+                                  ? "Enviando..."
+                                  : "Enviar ahora"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -3723,6 +4909,180 @@ export default function PanelPage() {
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal para probar campaña individual (PR-16) */}
+        {probarCampaniaModal && (
+          <div
+            id="modal-probar-campania"
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(10, 37, 64, 0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "20px",
+              zIndex: 1000,
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: "420px",
+                backgroundColor: "#FFFFFF",
+                borderRadius: "16px",
+                padding: "28px 24px",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 8px 0",
+                  fontSize: "18px",
+                  fontWeight: 700,
+                  color: theme.text.onLight,
+                }}
+              >
+                Probar campaña
+              </h3>
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: theme.text.secondary,
+                  margin: "0 0 16px 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                Enviá la campaña "{probarCampaniaModal.titulo}" únicamente al
+                pase indicado para probarla en tu teléfono.
+              </p>
+
+              {probarError && (
+                <div
+                  id="error-probar-campania"
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    backgroundColor: "#FEE2E2",
+                    color: "#991B1B",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    marginBottom: "14px",
+                  }}
+                >
+                  {probarError}
+                </div>
+              )}
+
+              {probarSuccess && (
+                <div
+                  id="success-probar-campania"
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    backgroundColor: "#DCFCE7",
+                    color: "#166534",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    marginBottom: "14px",
+                  }}
+                >
+                  {probarSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleEjecutarPruebaCampania}>
+                <div style={{ marginBottom: "16px" }}>
+                  <label
+                    htmlFor="input-probar-serial"
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: theme.text.onLight,
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Código corto o Serial del pase
+                  </label>
+                  <input
+                    id="input-probar-serial"
+                    type="text"
+                    value={probarSerialInput}
+                    onChange={(e) => setProbarSerialInput(e.target.value)}
+                    placeholder="Ej. 234ABC o UUID de serie"
+                    required
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: `1px solid ${theme.colors.niebla}`,
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <button
+                    type="button"
+                    id="btn-cancelar-probar"
+                    onClick={() => {
+                      setProbarCampaniaModal(null);
+                      setProbarSerialInput("");
+                      setProbarError("");
+                      setProbarSuccess("");
+                    }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      border: "1px solid #CBD5E1",
+                      backgroundColor: "#FFFFFF",
+                      color: theme.text.secondary,
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    id="btn-confirmar-probar"
+                    disabled={probandoCampania || !probarSerialInput.trim()}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: theme.button.primaryBg,
+                      color: theme.button.primaryText,
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor:
+                        probandoCampania || !probarSerialInput.trim()
+                          ? "not-allowed"
+                          : "pointer",
+                      opacity:
+                        probandoCampania || !probarSerialInput.trim() ? 0.7 : 1,
+                    }}
+                  >
+                    {probandoCampania ? "Enviando prueba..." : "Enviar prueba"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -4720,6 +6080,7 @@ export default function PanelPage() {
                     }}
                   >
                     <th style={{ padding: "12px 16px" }}>Cliente</th>
+                    <th style={{ padding: "12px 16px" }}>Código</th>
                     <th style={{ padding: "12px 16px" }}>Estado</th>
                     <th style={{ padding: "12px 16px" }}>Sellos</th>
                     <th style={{ padding: "12px 16px" }}>Fecha de alta</th>
@@ -4741,6 +6102,21 @@ export default function PanelPage() {
                         }}
                       >
                         {pase.clienteNombre}
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <code
+                          style={{
+                            fontWeight: 700,
+                            letterSpacing: "0.05em",
+                            color: theme.text.onLight,
+                            backgroundColor: "#F1F5F9",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {pase.codigoCorto || "—"}
+                        </code>
                       </td>
                       <td style={{ padding: "12px 16px" }}>
                         <span
