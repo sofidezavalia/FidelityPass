@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "../../lib/auth-client";
+import { branding } from "../../lib/branding";
 
 interface StaffItem {
   id: string;
@@ -55,6 +56,9 @@ interface ReglasResponse {
   montoPorSello: number | null;
   puntosPorUnidad: number | null;
   bonoBienvenida?: number;
+  bonoCumpleanios?: number;
+  pedirTicket?: boolean;
+  maxUnidadesPorTicket?: number | null;
   tieneMovimientos?: boolean;
 }
 
@@ -62,6 +66,7 @@ interface CampaniaItem {
   id: string;
   titulo: string;
   cuerpo: string;
+  segmento?: string;
   estado: "borrador" | "programada" | "enviada";
   programadaPara?: string | null;
   createdAt: string;
@@ -215,6 +220,9 @@ export default function PanelPage() {
   const [tieneMovimientos, setTieneMovimientos] = useState<boolean>(false);
   const [maxSellosPorDia, setMaxSellosPorDia] = useState<number>(1);
   const [bonoBienvenida, setBonoBienvenida] = useState<number>(0);
+  const [bonoCumpleanios, setBonoCumpleanios] = useState<number>(0);
+  const [pedirTicket, setPedirTicket] = useState<boolean>(false);
+  const [maxUnidadesPorTicket, setMaxUnidadesPorTicket] = useState<string>("");
   const [savingReglas, setSavingReglas] = useState(false);
   const [reglasError, setReglasError] = useState("");
   const [reglasSuccess, setReglasSuccess] = useState("");
@@ -240,6 +248,19 @@ export default function PanelPage() {
       }
       if (typeof reglasData.bonoBienvenida === "number") {
         setBonoBienvenida(reglasData.bonoBienvenida);
+      }
+      if (typeof reglasData.bonoCumpleanios === "number") {
+        setBonoCumpleanios(reglasData.bonoCumpleanios);
+      }
+      if (typeof reglasData.pedirTicket === "boolean") {
+        setPedirTicket(reglasData.pedirTicket);
+      }
+      if (reglasData.maxUnidadesPorTicket !== undefined) {
+        setMaxUnidadesPorTicket(
+          reglasData.maxUnidadesPorTicket !== null
+            ? String(reglasData.maxUnidadesPorTicket)
+            : "",
+        );
       }
       if (reglasData.modoAcumulacion) {
         setModoAcumulacion(reglasData.modoAcumulacion);
@@ -269,9 +290,13 @@ export default function PanelPage() {
   const unidadLabel =
     modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos";
 
-  // Estados locales para Campañas (PR-10 / PR-16)
+  // Estados locales para Campañas (PR-10 / PR-16 / PR-17)
   const [campaniaTitulo, setCampaniaTitulo] = useState("");
   const [campaniaCuerpo, setCampaniaCuerpo] = useState("");
+  const [campaniaSegmento, setCampaniaSegmento] = useState<
+    "todos" | "cumple_mes" | "inactivos_30" | "con_canjes" | "nuevos_30"
+  >("todos");
+  const [alcanceEstimado, setAlcanceEstimado] = useState<number | null>(null);
   const [campaniaAccion, setCampaniaAccion] = useState<
     "enviar" | "programar" | "borrador"
   >("enviar");
@@ -291,6 +316,27 @@ export default function PanelPage() {
   const [enviandoCampaniaId, setEnviandoCampaniaId] = useState<string | null>(
     null,
   );
+  const [enviandoWhatsAppId, setEnviandoWhatsAppId] = useState<string | null>(
+    null,
+  );
+  const [eliminandoClienteId, setEliminandoClienteId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/campanias/alcance?segmento=${campaniaSegmento}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (active && typeof data.alcance === "number") {
+          setAlcanceEstimado(data.alcance);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [campaniaSegmento]);
 
   // 8. Historial de campañas (PR-10)
   const {
@@ -466,6 +512,11 @@ export default function PanelPage() {
       montoPorSello: montoPorSello ? Number(montoPorSello) : null,
       puntosPorUnidad: puntosPorUnidad ? Number(puntosPorUnidad) : null,
       bonoBienvenida: Number(bonoBienvenida) || 0,
+      bonoCumpleanios: Number(bonoCumpleanios) || 0,
+      pedirTicket: Boolean(pedirTicket),
+      maxUnidadesPorTicket: maxUnidadesPorTicket
+        ? Number(maxUnidadesPorTicket)
+        : null,
     };
 
     const validation = reglasSchema.safeParse(payload);
@@ -513,6 +564,7 @@ export default function PanelPage() {
       const validation = campaniaSchema.safeParse({
         titulo: campaniaTitulo.trim(),
         cuerpo: campaniaCuerpo.trim(),
+        segmento: campaniaSegmento,
         accion: "enviar",
       });
 
@@ -521,6 +573,20 @@ export default function PanelPage() {
           validation.error.issues[0]?.message || "Datos de campaña inválidos",
         );
         return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/campanias/alcance?segmento=${campaniaSegmento}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.alcance === "number") {
+            setAlcanceEstimado(data.alcance);
+          }
+        }
+      } catch {
+        // Fallback al valor actual
       }
 
       setShowConfirmCampania(true);
@@ -539,6 +605,7 @@ export default function PanelPage() {
       const validation = campaniaSchema.safeParse({
         titulo: campaniaTitulo.trim(),
         cuerpo: campaniaCuerpo.trim(),
+        segmento: campaniaSegmento,
         accion: "programar",
         programadaPara: isoDate,
       });
@@ -558,6 +625,7 @@ export default function PanelPage() {
           body: JSON.stringify({
             titulo: campaniaTitulo.trim(),
             cuerpo: campaniaCuerpo.trim(),
+            segmento: campaniaSegmento,
             accion: "programar",
             programadaPara: isoDate,
           }),
@@ -587,6 +655,7 @@ export default function PanelPage() {
       const validation = campaniaSchema.safeParse({
         titulo: campaniaTitulo.trim(),
         cuerpo: campaniaCuerpo.trim(),
+        segmento: campaniaSegmento,
         accion: "borrador",
       });
 
@@ -605,6 +674,7 @@ export default function PanelPage() {
           body: JSON.stringify({
             titulo: campaniaTitulo.trim(),
             cuerpo: campaniaCuerpo.trim(),
+            segmento: campaniaSegmento,
             accion: "borrador",
           }),
         });
@@ -640,6 +710,7 @@ export default function PanelPage() {
         body: JSON.stringify({
           titulo: campaniaTitulo.trim(),
           cuerpo: campaniaCuerpo.trim(),
+          segmento: campaniaSegmento,
           accion: "enviar",
         }),
       });
@@ -656,7 +727,7 @@ export default function PanelPage() {
       }
 
       setCampaniaSuccess(
-        `Campaña enviada con éxito a ${data.enviadas ?? activePassesCount} tarjeta(s) activa(s).`,
+        `Campaña enviada con éxito a ${data.enviadas ?? data.alcance ?? activePassesCount} tarjeta(s).`,
       );
       setCampaniaTitulo("");
       setCampaniaCuerpo("");
@@ -668,6 +739,70 @@ export default function PanelPage() {
       setShowConfirmCampania(false);
     } finally {
       setCampaniaLoading(false);
+    }
+  };
+
+  const handleEnviarWhatsApp = async (pase: PaseListItem) => {
+    if (!pase.telefono?.trim()) {
+      alert("Este cliente no tiene teléfono cargado");
+      return;
+    }
+
+    setEnviandoWhatsAppId(pase.id);
+    try {
+      const res = await fetch(`/api/pases/${pase.id}/link`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "No se pudo obtener el link de la tarjeta");
+        return;
+      }
+
+      const link = data.link || data.saveUrl || data.downloadUrl;
+      if (!link) {
+        alert("No se encontró un link vigente para esta tarjeta");
+        return;
+      }
+
+      const cleanPhone = pase.telefono.replace(/[^0-9]/g, "");
+      const comercioNombre = session?.user?.name || "tu comercio";
+      const mensaje = `Hola ${pase.clienteNombre}, acá tenés tu tarjeta de ${comercioNombre}: ${link}`;
+      const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(mensaje)}`;
+      window.open(url, "_blank");
+    } catch {
+      alert("Error al conectar con el servidor");
+    } finally {
+      setEnviandoWhatsAppId(null);
+    }
+  };
+
+  const handleEliminarCliente = async (pase: PaseListItem) => {
+    const customerId = pase.customerId;
+    if (!customerId) {
+      alert("No se encontró el identificador del cliente");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Se borran todos sus datos. Esta acción no se deshace. ¿Confirmás?",
+    );
+    if (!confirmed) return;
+
+    setEliminandoClienteId(pase.id);
+    try {
+      const res = await fetch(`/api/customers/${customerId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["panel", "pases"] });
+        queryClient.invalidateQueries({ queryKey: ["panel", "resumen"] });
+      } else {
+        const data = await res.json();
+        alert(data.error || "No se pudo eliminar el cliente.");
+      }
+    } catch {
+      alert("Error de conexión al eliminar cliente.");
+    } finally {
+      setEliminandoClienteId(null);
     }
   };
 
@@ -1075,7 +1210,7 @@ export default function PanelPage() {
                 marginBottom: "8px",
               }}
             >
-              FidelityPass · Tucumán
+              {branding.nombreApp} · Tucumán
             </div>
             <h1
               id="titulo-panel"
@@ -4111,6 +4246,123 @@ export default function PanelPage() {
               </span>
             </div>
 
+            {/* Beneficio de cumpleaños (PR-17) */}
+            <div style={{ maxWidth: "340px", marginBottom: "20px" }}>
+              <label
+                htmlFor="input-bono-cumpleanios"
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                Regalo de cumpleaños
+              </label>
+              <input
+                id="input-bono-cumpleanios"
+                type="number"
+                min={0}
+                max={1000}
+                value={bonoCumpleanios}
+                onChange={(e) =>
+                  setBonoCumpleanios(
+                    Math.max(0, parseInt(e.target.value, 10) || 0),
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  color: theme.text.secondary,
+                  marginTop: "4px",
+                }}
+              >
+                {modoAcumulacion === "puntos_por_monto" ? "Puntos" : "Sellos"}{" "}
+                de regalo acreditados automáticamente en su cumpleaños (0 = solo
+                saludo).
+              </span>
+            </div>
+
+            {/* Ticket único y tope (PR-17) */}
+            <div style={{ maxWidth: "420px", marginBottom: "24px" }}>
+              <label
+                htmlFor="checkbox-pedir-ticket"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  cursor: "pointer",
+                  marginBottom: "12px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="checkbox-pedir-ticket"
+                  checked={pedirTicket}
+                  onChange={(e) => setPedirTicket(e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                <span>Pedir Nº de ticket en el sellado</span>
+              </label>
+
+              <div style={{ maxWidth: "340px", marginTop: "8px" }}>
+                <label
+                  htmlFor="input-max-unidades-por-ticket"
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: theme.text.onLight,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Tope de unidades por ticket
+                </label>
+                <input
+                  id="input-max-unidades-por-ticket"
+                  type="number"
+                  min={1}
+                  placeholder="Sin tope"
+                  value={maxUnidadesPorTicket}
+                  onChange={(e) => setMaxUnidadesPorTicket(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #CBD5E1",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    outline: "none",
+                  }}
+                />
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    color: theme.text.secondary,
+                    marginTop: "4px",
+                  }}
+                >
+                  Tope de unidades otorgadas por cada ticket (vacío = sin tope).
+                </span>
+              </div>
+            </div>
+
             <button
               type="submit"
               id="btn-guardar-reglas"
@@ -4318,6 +4570,74 @@ export default function PanelPage() {
               />
             </div>
 
+            {/* Selector de audiencia / segmento (PR-17) */}
+            <div style={{ marginBottom: "20px" }}>
+              <label
+                htmlFor="select-campania-segmento"
+                style={{
+                  display: "block",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                ¿A quién le llega?
+              </label>
+              <select
+                id="select-campania-segmento"
+                value={campaniaSegmento}
+                onChange={(e) =>
+                  setCampaniaSegmento(
+                    e.target.value as
+                      | "todos"
+                      | "cumple_mes"
+                      | "inactivos_30"
+                      | "con_canjes"
+                      | "nuevos_30",
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  border: `1px solid ${theme.colors.niebla}`,
+                  fontSize: "14px",
+                  outline: "none",
+                  backgroundColor: "#FFFFFF",
+                }}
+              >
+                <option value="todos">
+                  Todos los pases activos (toda tu base de clientes)
+                </option>
+                <option value="cumple_mes">
+                  Cumpleañeros del mes (cumplen años en el mes actual)
+                </option>
+                <option value="inactivos_30">
+                  Inactivos últimos 30 días (sin sellos, puntos ni canjes)
+                </option>
+                <option value="con_canjes">
+                  Los más fieles (con al menos un canje realizado)
+                </option>
+                <option value="nuevos_30">
+                  Nuevos miembros (creados en los últimos 30 días)
+                </option>
+              </select>
+              <div
+                id="preview-alcance-segmento"
+                style={{
+                  marginTop: "6px",
+                  fontSize: "13px",
+                  color: theme.colors.azulNoche,
+                  fontWeight: 600,
+                }}
+              >
+                {alcanceEstimado !== null
+                  ? `Se va a enviar a ${alcanceEstimado} ${alcanceEstimado === 1 ? "tarjeta" : "tarjetas"}`
+                  : `Se va a enviar a ${activePassesCount} tarjetas`}
+              </div>
+            </div>
+
             {/* Selector de acción (PR-16) */}
             <div style={{ marginBottom: "16px" }}>
               <span
@@ -4480,7 +4800,7 @@ export default function PanelPage() {
                     opacity: campaniaLoading ? 0.7 : 1,
                   }}
                 >
-                  {campaniaLoading ? "Enviando..." : "Enviar ahora"}
+                  {campaniaLoading ? "Enviando..." : "Enviar a mis tarjetas"}
                 </button>
               )}
 
@@ -4527,6 +4847,23 @@ export default function PanelPage() {
                   {campaniaLoading ? "Guardando..." : "Guardar borrador"}
                 </button>
               )}
+            </div>
+
+            <div
+              id="nota-consentimiento-campanias"
+              style={{
+                marginTop: "12px",
+                fontSize: "13px",
+                color: theme.text.secondary,
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              <span>ℹ️</span>
+              <span>
+                Solo les llega a los clientes que aceptaron recibir promos.
+              </span>
             </div>
           </form>
 
@@ -4845,11 +5182,12 @@ export default function PanelPage() {
                   fontWeight: 500,
                 }}
               >
-                Se va a enviar a <strong>{activePassesCount}</strong>{" "}
-                {activePassesCount === 1
-                  ? "tarjeta activa"
-                  : "tarjetas activas"}
-                . ¿Confirmás?
+                Se va a enviar a{" "}
+                <strong>{alcanceEstimado ?? activePassesCount}</strong>{" "}
+                {(alcanceEstimado ?? activePassesCount) === 1
+                  ? "tarjeta"
+                  : "tarjetas"}{" "}
+                con promo aceptada. ¿Confirmás?
               </p>
               <p
                 style={{
@@ -5441,6 +5779,42 @@ export default function PanelPage() {
               </div>
               <span style={{ fontSize: "12px", color: theme.text.secondary }}>
                 Unidades canjeadas / otorgadas
+              </span>
+            </div>
+
+            <div
+              id="kpi-retencion-30"
+              style={{
+                backgroundColor: "#F8FAFC",
+                borderRadius: "14px",
+                padding: "18px 20px",
+                border: "1px solid #E2E8F0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: theme.text.secondary,
+                  textTransform: "uppercase",
+                }}
+              >
+                Retención 30 días
+              </span>
+              <div
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: "#059669",
+                  margin: "6px 0 2px 0",
+                }}
+              >
+                {analyticsResumenLoading
+                  ? "..."
+                  : `${analyticsResumen?.tasaRetencion ?? 0}%`}
+              </div>
+              <span style={{ fontSize: "12px", color: theme.text.secondary }}>
+                Miembros activos con movimientos
               </span>
             </div>
           </div>
@@ -6084,6 +6458,9 @@ export default function PanelPage() {
                     <th style={{ padding: "12px 16px" }}>Estado</th>
                     <th style={{ padding: "12px 16px" }}>Sellos</th>
                     <th style={{ padding: "12px 16px" }}>Fecha de alta</th>
+                    <th style={{ padding: "12px 16px", textAlign: "right" }}>
+                      Acciones
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6143,6 +6520,69 @@ export default function PanelPage() {
                         }}
                       >
                         {new Date(pase.createdAt).toLocaleDateString("es-AR")}
+                      </td>
+                      <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            id={`btn-whatsapp-${pase.id}`}
+                            onClick={() => handleEnviarWhatsApp(pase)}
+                            disabled={enviandoWhatsAppId === pase.id}
+                            style={{
+                              backgroundColor: "#25D366",
+                              color: "#FFFFFF",
+                              border: "none",
+                              borderRadius: "6px",
+                              padding: "6px 12px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                            }}
+                          >
+                            <span>💬</span>
+                            <span>
+                              {enviandoWhatsAppId === pase.id
+                                ? "Obteniendo..."
+                                : "Enviar por WhatsApp"}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            id={`btn-eliminar-cliente-${pase.id}`}
+                            onClick={() => handleEliminarCliente(pase)}
+                            disabled={eliminandoClienteId === pase.id}
+                            style={{
+                              backgroundColor: "#FEE2E2",
+                              color: "#991B1B",
+                              border: "1px solid #FECACA",
+                              borderRadius: "6px",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              cursor:
+                                eliminandoClienteId === pase.id
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity:
+                                eliminandoClienteId === pase.id ? 0.6 : 1,
+                            }}
+                          >
+                            {eliminandoClienteId === pase.id
+                              ? "Borrando..."
+                              : "Eliminar"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

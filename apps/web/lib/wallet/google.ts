@@ -168,3 +168,64 @@ export function issuePass(
     serialNumber,
   };
 }
+
+/**
+ * Regenera el link de guardado para Google Wallet sin crear un nuevo serialNumber ni cambiar el objeto.
+ * Se utiliza para reenviar el pase (por ejemplo, vía WhatsApp).
+ */
+export function regenerateSaveUrl(
+  merchant: MerchantPassData,
+  customer: CustomerPassData,
+  pass: { googleWalletObjectId?: string | null; serialNumber: string },
+  sellos = 0,
+): string {
+  const issuerId = env.GOOGLE_WALLET_ISSUER_ID || "ISSUER_UNSET";
+  const serviceAccountEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
+  const privateKey = getFormattedPrivateKey();
+
+  const classId = `${issuerId}.${merchant.id}`;
+  const loyaltyClass = getOrCreateClass(merchant);
+  const googleWalletObjectId =
+    pass.googleWalletObjectId || `${issuerId}.${pass.serialNumber}`;
+
+  const loyaltyObject: Record<string, unknown> = {
+    id: googleWalletObjectId,
+    classId: classId,
+    state: "ACTIVE",
+    accountName: customer.nombre,
+    accountId: customer.id,
+    loyaltyPoints: {
+      label: "Sellos",
+      balance: {
+        string: `${sellos} sellos`,
+      },
+    },
+    textModulesData: [
+      {
+        id: "proxima_recompensa",
+        header: "Próxima recompensa",
+        body: "Consultá en el comercio tus recompensas disponibles",
+      },
+    ],
+    barcode: {
+      type: "QR_CODE",
+      value: pass.serialNumber,
+      alternateText: pass.serialNumber,
+    },
+  };
+
+  const claims = {
+    iss: serviceAccountEmail,
+    aud: "google",
+    typ: "savetojwt",
+    iat: Math.floor(Date.now() / 1000),
+    origins: [env.BETTER_AUTH_URL],
+    payload: {
+      loyaltyClasses: [loyaltyClass],
+      loyaltyObjects: [loyaltyObject],
+    },
+  };
+
+  const token = jwt.sign(claims, privateKey, { algorithm: "RS256" });
+  return `https://pay.google.com/gp/v/save/${token}`;
+}

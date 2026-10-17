@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
         merchantId: claimed.merchantId,
         titulo: claimed.titulo,
         cuerpo: claimed.cuerpo,
+        segmento: claimed.segmento,
       });
       procesadas++;
     } catch (err) {

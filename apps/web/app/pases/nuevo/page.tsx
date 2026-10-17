@@ -20,6 +20,8 @@ function NuevoPaseForm() {
   const [nombreCliente, setNombreCliente] = useState("");
   const [telefono, setTelefono] = useState("");
   const [consentimientoMarketing, setConsentimientoMarketing] = useState(false); // Honest default: unchecked
+  const [aceptaTerminos, setAceptaTerminos] = useState(false); // Honest default: unchecked
+  const [aceptaPrivacidad, setAceptaPrivacidad] = useState(false); // Honest default: unchecked
   const [error, setError] = useState("");
   const [loadingWallet, setLoadingWallet] = useState<"google" | "apple" | null>(
     null,
@@ -106,12 +108,21 @@ function NuevoPaseForm() {
   const handleEmitirPase = async (walletType: "google" | "apple") => {
     setError("");
 
+    if (!aceptaTerminos || !aceptaPrivacidad) {
+      setError(
+        "Debés aceptar los Términos y Condiciones y la Política de Privacidad para continuar.",
+      );
+      return;
+    }
+
     // Validación previa con Zod en el cliente antes de llamar a la API
     const validation = emitirPaseSchema.safeParse({
       merchantId,
       nombreCliente: nombreCliente.trim(),
       telefono: telefono.trim(),
       consentimientoMarketing,
+      aceptaTerminos,
+      aceptaPrivacidad,
     });
 
     if (!validation.success) {
@@ -341,10 +352,108 @@ function NuevoPaseForm() {
           />
         </div>
 
-        {/* Checkbox Consentimiento Marketing (PR-15: sin tildar por defecto) */}
+        {/* Checkbox Obligatorio: Términos y Condiciones (PR-18) */}
         <div
           style={{
-            marginBottom: "24px",
+            marginBottom: "12px",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "10px",
+          }}
+        >
+          <input
+            id="checkbox-terminos"
+            type="checkbox"
+            checked={aceptaTerminos}
+            onChange={(e) => setAceptaTerminos(e.target.checked)}
+            style={{
+              marginTop: "3px",
+              width: "16px",
+              height: "16px",
+              accentColor: theme.colors.celesteBandera,
+              cursor: "pointer",
+            }}
+          />
+          <label
+            htmlFor="checkbox-terminos"
+            style={{
+              fontSize: "13px",
+              color: theme.text.onLight,
+              lineHeight: 1.4,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            Acepto los{" "}
+            <a
+              href="/terminos"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: theme.colors.celesteBandera,
+                textDecoration: "underline",
+                fontWeight: 600,
+              }}
+            >
+              Términos y Condiciones
+            </a>{" "}
+            <span style={{ color: "#DC2626", fontWeight: 700 }}>*</span>
+          </label>
+        </div>
+
+        {/* Checkbox Obligatorio: Política de Privacidad (PR-18) */}
+        <div
+          style={{
+            marginBottom: "12px",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "10px",
+          }}
+        >
+          <input
+            id="checkbox-privacidad"
+            type="checkbox"
+            checked={aceptaPrivacidad}
+            onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+            style={{
+              marginTop: "3px",
+              width: "16px",
+              height: "16px",
+              accentColor: theme.colors.celesteBandera,
+              cursor: "pointer",
+            }}
+          />
+          <label
+            htmlFor="checkbox-privacidad"
+            style={{
+              fontSize: "13px",
+              color: theme.text.onLight,
+              lineHeight: 1.4,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            Acepto la{" "}
+            <a
+              href="/privacidad"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: theme.colors.celesteBandera,
+                textDecoration: "underline",
+                fontWeight: 600,
+              }}
+            >
+              Política de Privacidad
+            </a>{" "}
+            <span style={{ color: "#DC2626", fontWeight: 700 }}>*</span>
+          </label>
+        </div>
+
+        {/* Checkbox Consentimiento Marketing (PR-15 / PR-18: opcional sin tildar) */}
+        <div
+          style={{
+            marginBottom: "16px",
             display: "flex",
             alignItems: "flex-start",
             gap: "10px",
@@ -373,9 +482,32 @@ function NuevoPaseForm() {
               userSelect: "none",
             }}
           >
-            Quiero recibir promos por WhatsApp
+            Quiero recibir promos por WhatsApp{" "}
+            <span style={{ fontSize: "11px", color: theme.text.secondary }}>
+              (opcional)
+            </span>
           </label>
         </div>
+
+        {/* Error visible junto a los checkboxes si no se aceptan ambos */}
+        {(!aceptaTerminos || !aceptaPrivacidad) && error && (
+          <div
+            id="error-legal-visible"
+            style={{
+              padding: "8px 12px",
+              backgroundColor: "#FEE2E2",
+              border: "1px solid #FECACA",
+              borderRadius: "8px",
+              color: "#991B1B",
+              fontSize: "12px",
+              fontWeight: 600,
+              marginBottom: "16px",
+              lineHeight: 1.4,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {/* Botón Google Wallet */}

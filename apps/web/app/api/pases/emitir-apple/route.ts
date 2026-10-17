@@ -111,6 +111,10 @@ export async function POST(request: NextRequest) {
             marketingConsentAt: isMarketing
               ? new Date()
               : existingCustomer.marketingConsentAt,
+            terminosAceptadosAt:
+              existingCustomer.terminosAceptadosAt ?? new Date(),
+            privacidadAceptadaAt:
+              existingCustomer.privacidadAceptadaAt ?? new Date(),
           })
           .where(eq(customers.id, existingCustomer.id));
 
@@ -130,6 +134,8 @@ export async function POST(request: NextRequest) {
       telefono: cleanPhone,
       consentimientoMarketing: isMarketing,
       marketingConsentAt: isMarketing ? new Date() : null,
+      terminosAceptadosAt: new Date(),
+      privacidadAceptadaAt: new Date(),
     })
     .returning();
 

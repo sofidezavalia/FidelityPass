@@ -7,6 +7,7 @@ import {
   pointsLedger,
   rewards,
   stamps,
+  tickets,
 } from "@fidelitypass/db";
 import { and, count, eq, gte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
@@ -53,6 +54,8 @@ export async function GET(request: NextRequest) {
       montoPorSello: merchants.montoPorSello,
       puntosPorUnidad: merchants.puntosPorUnidad,
       maxSellosPorDia: merchants.maxSellosPorDia,
+      pedirTicket: merchants.pedirTicket,
+      maxUnidadesPorTicket: merchants.maxUnidadesPorTicket,
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
@@ -136,6 +139,8 @@ export async function GET(request: NextRequest) {
     sellosHoy,
     maxSellosPorDia: maxSellos,
     yaSelladoHoy,
+    pedirTicket: row.pedirTicket ?? false,
+    maxUnidadesPorTicket: row.maxUnidadesPorTicket ?? null,
     recompensas: activeRewards.map((r) => ({
       ...r,
       costo: r.costo,
@@ -173,7 +178,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { serialNumber, codigoCorto, monto } = validation.data;
+  const { serialNumber, codigoCorto, monto, nroTicket } = validation.data;
+  const ticketLimpio = nroTicket?.trim() || null;
 
   // 1. Buscamos el pase por codigoCorto o serialNumber con los datos del cliente y comercio
   const queryCondition = codigoCorto
@@ -195,6 +201,8 @@ export async function POST(request: NextRequest) {
       montoPorSello: merchants.montoPorSello,
       puntosPorUnidad: merchants.puntosPorUnidad,
       maxSellosPorDia: merchants.maxSellosPorDia,
+      pedirTicket: merchants.pedirTicket,
+      maxUnidadesPorTicket: merchants.maxUnidadesPorTicket,
     })
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
@@ -223,8 +231,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Validación de ticket único y requerido (PR-17)
+  if (row.pedirTicket && !ticketLimpio) {
+    return NextResponse.json(
+      { error: "El número de ticket es obligatorio" },
+      { status: 422 },
+    );
+  }
+
+  if (ticketLimpio) {
+    const [existingTicket] = await db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.merchantId, staffSession.merchantId),
+          eq(tickets.nroTicket, ticketLimpio),
+        ),
+      )
+      .limit(1);
+
+    if (existingTicket) {
+      return NextResponse.json(
+        { error: "Este ticket ya fue cargado" },
+        { status: 409 },
+      );
+    }
+  }
+
   let unidadesOtorgadas = 0;
   let mensajeTope: string | undefined;
+  let topeTicketAplicado = false;
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -287,12 +324,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const n = Math.floor(monto / montoPorSello);
+    let n = Math.floor(monto / montoPorSello);
     if (n === 0) {
       return NextResponse.json(
         { error: "El monto no alcanza para ningún sello" },
         { status: 422 },
       );
+    }
+
+    // Tope por ticket (PR-17)
+    if (row.maxUnidadesPorTicket && n > row.maxUnidadesPorTicket) {
+      n = row.maxUnidadesPorTicket;
+      topeTicketAplicado = true;
+      mensajeTope = `Se acreditaron ${n} sellos (tope de ${row.maxUnidadesPorTicket} por ticket)`;
     }
 
     const [sellosHoyResult] = await db
@@ -343,7 +387,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const p = Math.floor(monto * puntosPorUnidad);
+    let p = Math.floor(monto * puntosPorUnidad);
     if (p === 0) {
       return NextResponse.json(
         { error: "El monto no alcanza para ningún punto" },
@@ -351,7 +395,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Sin tope diario en modo puntos
+    // Tope por ticket (PR-17)
+    if (row.maxUnidadesPorTicket && p > row.maxUnidadesPorTicket) {
+      p = row.maxUnidadesPorTicket;
+      topeTicketAplicado = true;
+      mensajeTope = `Se acreditaron ${p} puntos (tope de ${row.maxUnidadesPorTicket} por ticket)`;
+    }
+
     await db.insert(pointsLedger).values({
       passId: row.id,
       merchantId: staffSession.merchantId,
@@ -360,6 +410,21 @@ export async function POST(request: NextRequest) {
       montoCompra: monto.toString(),
     });
     unidadesOtorgadas = p;
+  }
+
+  // Registrar ticket usado si corresponde
+  if (ticketLimpio) {
+    try {
+      await db.insert(tickets).values({
+        merchantId: staffSession.merchantId,
+        nroTicket: ticketLimpio,
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Este ticket ya fue cargado" },
+        { status: 409 },
+      );
+    }
   }
 
   // 3. Calcular saldo actualizado
@@ -386,6 +451,8 @@ export async function POST(request: NextRequest) {
     saldoDisponible: saldo.disponible,
     unidadesOtorgadas,
     mensajeTope,
+    topeAplicado: Boolean(topeTicketAplicado || mensajeTope),
+    nroTicket: ticketLimpio ?? undefined,
   };
 
   const validated = selloResultadoSchema.parse(resultado);

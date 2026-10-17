@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { authClient } from "../../lib/auth-client";
+import { branding } from "../../lib/branding";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -99,7 +100,7 @@ export default function LoginPage() {
               marginBottom: "12px",
             }}
           >
-            FidelityPass
+            {branding.nombreApp}
           </div>
           <h1
             style={{

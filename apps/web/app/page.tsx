@@ -1,5 +1,6 @@
 import { theme } from "@fidelitypass/ui";
 import Link from "next/link";
+import { branding } from "../lib/branding";
 
 export default function Page() {
   return (
@@ -54,7 +55,7 @@ export default function Page() {
             color: theme.text.onLight,
           }}
         >
-          FidelityPass — MVP en construcción
+          {branding.nombreApp}
         </h1>
 
         <p

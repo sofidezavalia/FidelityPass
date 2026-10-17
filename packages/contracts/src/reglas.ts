@@ -70,6 +70,19 @@ export const reglasSchema = z
       .min(0, "Mínimo 0 unidades")
       .default(0)
       .optional(),
+    bonoCumpleanios: z
+      .number()
+      .int()
+      .min(0, "Mínimo 0 unidades")
+      .default(0)
+      .optional(),
+    pedirTicket: z.boolean().default(false).optional(),
+    maxUnidadesPorTicket: z
+      .number()
+      .int()
+      .positive("El tope debe ser mayor a 0")
+      .optional()
+      .nullable(),
   })
   .superRefine((v, ctx) => {
     if (v.modoAcumulacion === "sello_por_monto" && !v.montoPorSello) {

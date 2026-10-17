@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { branding } from "../lib/branding";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "FidelityPass — MVP",
-  description: "Tarjetas de fidelidad digitales para comercios",
+  title: `${branding.nombreApp} — Fidelización Digital`,
+  description: branding.descripcionCorta,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

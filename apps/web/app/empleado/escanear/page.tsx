@@ -30,6 +30,8 @@ interface PassVerification {
   sellosHoy: number;
   maxSellosPorDia: number;
   yaSelladoHoy: boolean;
+  pedirTicket?: boolean;
+  maxUnidadesPorTicket?: number | null;
   recompensas: RecompensaItem[];
 }
 
@@ -37,11 +39,13 @@ export default function EscanearPage() {
   const [step, setStep] = useState<
     "SCANNING" | "VERIFYING" | "SUCCESS_STAMP" | "SUCCESS_CANJE"
   >("SCANNING");
+  const [activeTab, setActiveTab] = useState<"sumar" | "canjear">("sumar");
   const [scannedCode, setScannedCode] = useState("");
   const [verification, setVerification] = useState<PassVerification | null>(
     null,
   );
   const [montoCompra, setMontoCompra] = useState("");
+  const [nroTicket, setNroTicket] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [stampLoading, setStampLoading] = useState(false);
@@ -110,6 +114,8 @@ export default function EscanearPage() {
       setVerifyLoading(true);
       setVerifyError("");
       setMontoCompra("");
+      setNroTicket("");
+      setActiveTab("sumar");
       setStep("VERIFYING");
 
       try {
@@ -259,6 +265,10 @@ export default function EscanearPage() {
         }
       }
     }
+
+    if (verification.pedirTicket && !nroTicket.trim()) {
+      canSubmitStamp = false;
+    }
   }
 
   const handleConfirmarSello = async () => {
@@ -270,6 +280,7 @@ export default function EscanearPage() {
         serialNumber?: string;
         codigoCorto?: string;
         monto?: number;
+        nroTicket?: string;
       } = {};
 
       if (verification?.serialNumber) {
@@ -282,6 +293,10 @@ export default function EscanearPage() {
 
       if (montoCompra.trim()) {
         payload.monto = parseFloat(montoCompra);
+      }
+
+      if (nroTicket.trim()) {
+        payload.nroTicket = nroTicket.trim();
       }
 
       const res = await fetch("/api/sellos", {
@@ -361,6 +376,8 @@ export default function EscanearPage() {
     setScannedCode("");
     setCodigoManual("");
     setMontoCompra("");
+    setNroTicket("");
+    setActiveTab("sumar");
     setVerification(null);
     setVerifyError("");
     setStampResult(null);
@@ -879,349 +896,490 @@ export default function EscanearPage() {
                   </div>
                 </div>
 
-                {/* Advertencia si ya alcanzó límite de sellos diarios (solo modos con tope) */}
-                {verification.modoAcumulacion !== "puntos_por_monto" &&
-                  verification.yaSelladoHoy && (
-                    <div
-                      id="aviso-limite-diario"
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: "8px",
-                        backgroundColor: "#FEF3C7",
-                        color: "#92400E",
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        marginBottom: "16px",
-                        textAlign: "center",
-                      }}
-                    >
-                      Límite diario alcanzado: ya se sumaron{" "}
-                      {verification.sellosHoy} de {verification.maxSellosPorDia}{" "}
-                      sello(s) permitido(s) hoy.
-                    </div>
-                  )}
-
-                {/* INPUT DE MONTO DE LA COMPRA (si el modo lo usa) */}
-                {usaMonto && (
-                  <div
-                    id="contenedor-monto-compra"
-                    style={{
-                      backgroundColor: "#F8FAFC",
-                      border: "1px solid #E2E8F0",
-                      borderRadius: "12px",
-                      padding: "16px",
-                      marginBottom: "16px",
-                    }}
-                  >
-                    <label
-                      htmlFor="input-monto-compra"
-                      style={{
-                        display: "block",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        color: theme.text.onLight,
-                        marginBottom: "6px",
-                      }}
-                    >
-                      Monto de la compra ($)
-                    </label>
-                    <input
-                      id="input-monto-compra"
-                      type="number"
-                      step="any"
-                      min={0}
-                      placeholder="Ingresá el monto de la compra"
-                      value={montoCompra}
-                      onChange={(e) => setMontoCompra(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "12px 14px",
-                        borderRadius: "8px",
-                        border: "1.5px solid #CBD5E1",
-                        fontSize: "16px",
-                        fontWeight: 600,
-                        boxSizing: "border-box",
-                        outline: "none",
-                      }}
-                    />
-
-                    {/* Aviso si modo 1 tiene mínimo configurado */}
-                    {verification.modoAcumulacion === "sello_por_visita" &&
-                      verification.montoMinimoSello && (
-                        <div
-                          id="aviso-monto-minimo"
-                          style={{
-                            marginTop: "8px",
-                            fontSize: "13px",
-                            fontWeight: 600,
-                            color: "#B45309",
-                          }}
-                        >
-                          Mínimo ${verification.montoMinimoSello} para ganar el
-                          sello
-                        </div>
-                      )}
-
-                    {/* Preview en vivo */}
-                    {previewText && (
-                      <div
-                        id="preview-calculo-acumulacion"
-                        style={{
-                          marginTop: "10px",
-                          padding: "10px 12px",
-                          borderRadius: "8px",
-                          backgroundColor: "#EFF6FF",
-                          border: "1px solid #BFDBFE",
-                          color: "#1E40AF",
-                          fontSize: "14px",
-                          fontWeight: 700,
-                          textAlign: "center",
-                        }}
-                      >
-                        {previewText}
-                      </div>
-                    )}
-                    {!previewText && previewSubtext && (
-                      <div
-                        id="subtext-calculo-acumulacion"
-                        style={{
-                          marginTop: "8px",
-                          fontSize: "12px",
-                          color: theme.text.secondary,
-                        }}
-                      >
-                        {previewSubtext}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* BOTÓN SUMAR SELLOS / PUNTOS */}
-                <div style={{ marginBottom: "24px" }}>
+                {/* PESTAÑAS: SUMAR Y CANJEAR (PR-17) */}
+                <div
+                  style={{
+                    display: "flex",
+                    borderBottom: "2px solid #E2E8F0",
+                    marginBottom: "20px",
+                    gap: "8px",
+                  }}
+                >
                   <button
                     type="button"
-                    id="btn-confirmar-sello"
-                    disabled={
-                      stampLoading ||
-                      (verification.modoAcumulacion !== "puntos_por_monto" &&
-                        verification.yaSelladoHoy) ||
-                      !canSubmitStamp
-                    }
-                    onClick={handleConfirmarSello}
+                    id="tab-sumar"
+                    onClick={() => setActiveTab("sumar")}
                     style={{
-                      width: "100%",
-                      backgroundColor: theme.button.primaryBg,
-                      color: theme.button.primaryText,
-                      border: "none",
-                      borderRadius: "10px",
-                      padding: "14px",
+                      flex: 1,
+                      padding: "12px",
                       fontSize: "15px",
                       fontWeight: 700,
-                      cursor:
-                        stampLoading ||
-                        (verification.modoAcumulacion !== "puntos_por_monto" &&
-                          verification.yaSelladoHoy) ||
-                        !canSubmitStamp
-                          ? "not-allowed"
-                          : "pointer",
-                      opacity:
-                        stampLoading ||
-                        (verification.modoAcumulacion !== "puntos_por_monto" &&
-                          verification.yaSelladoHoy) ||
-                        !canSubmitStamp
-                          ? 0.6
-                          : 1,
-                      boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+                      border: "none",
+                      borderBottom:
+                        activeTab === "sumar"
+                          ? `3px solid ${theme.accent.premium}`
+                          : "3px solid transparent",
+                      backgroundColor: "transparent",
+                      color:
+                        activeTab === "sumar"
+                          ? theme.colors.azulNoche
+                          : theme.text.secondary,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
                     }}
                   >
-                    {stampLoading
-                      ? "Procesando..."
-                      : verification.modoAcumulacion === "puntos_por_monto"
-                        ? previewText
-                          ? `Acreditar (${previewText})`
-                          : "Acreditar puntos"
-                        : previewText
-                          ? previewText
-                          : "Sumar 1 sello"}
+                    Sumar {verification.unidad}
+                  </button>
+                  <button
+                    type="button"
+                    id="tab-canjear"
+                    onClick={() => setActiveTab("canjear")}
+                    style={{
+                      flex: 1,
+                      padding: "12px",
+                      fontSize: "15px",
+                      fontWeight: 700,
+                      border: "none",
+                      borderBottom:
+                        activeTab === "canjear"
+                          ? `3px solid ${theme.accent.premium}`
+                          : "3px solid transparent",
+                      backgroundColor: "transparent",
+                      color:
+                        activeTab === "canjear"
+                          ? theme.colors.azulNoche
+                          : theme.text.secondary,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <span>Canjear</span>
+                    {recompensasCanjeables.length > 0 && (
+                      <span
+                        style={{
+                          backgroundColor: "#16A34A",
+                          color: "#FFFFFF",
+                          fontSize: "11px",
+                          padding: "2px 7px",
+                          borderRadius: "10px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        {recompensasCanjeables.length}
+                      </span>
+                    )}
                   </button>
                 </div>
 
-                {/* SECCIÓN RECOMPENSAS CANJEABLES */}
-                <div
-                  id="seccion-recompensas-canjeables"
-                  style={{
-                    borderTop: `1px solid ${theme.colors.niebla}`,
-                    paddingTop: "20px",
-                    marginBottom: "20px",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 12px 0",
-                      fontSize: "16px",
-                      fontWeight: 700,
-                      color: theme.text.onLight,
-                    }}
-                  >
-                    Recompensas canjeables
-                  </h3>
-
-                  {recompensasCanjeables.length === 0 ? (
-                    <div
-                      style={{
-                        padding: "16px",
-                        backgroundColor: "#F8FAFC",
-                        borderRadius: "10px",
-                        border: "1px dashed #CBD5E1",
-                        textAlign: "center",
-                        fontSize: "13px",
-                        color: theme.text.secondary,
-                      }}
-                    >
-                      {verification.recompensas.length === 0
-                        ? "El comercio no tiene recompensas activas actualmente."
-                        : `El cliente no tiene ${verification.unidad} suficientes para canjear en este momento (mínimo ${recompensasFuturas[0]?.costo || 0} ${verification.unidad}).`}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                      }}
-                    >
-                      {recompensasCanjeables.map((r) => (
+                {/* CONTENIDO PESTAÑA SUMAR */}
+                {activeTab === "sumar" && (
+                  <div id="tab-contenido-sumar">
+                    {/* Advertencia si ya alcanzó límite de sellos diarios */}
+                    {verification.modoAcumulacion !== "puntos_por_monto" &&
+                      verification.yaSelladoHoy && (
                         <div
-                          key={r.id}
-                          id={`item-canjeable-${r.id}`}
+                          id="aviso-limite-diario"
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "14px",
-                            backgroundColor: "#FFFFFF",
-                            border: `1.5px solid ${theme.accent.premium}`,
-                            borderRadius: "10px",
-                            boxShadow: "0 2px 6px rgba(10, 37, 64, 0.04)",
+                            padding: "12px 14px",
+                            borderRadius: "8px",
+                            backgroundColor: "#FEF3C7",
+                            color: "#92400E",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            marginBottom: "16px",
+                            textAlign: "center",
                           }}
                         >
-                          <div>
-                            <div
-                              style={{
-                                fontSize: "15px",
-                                fontWeight: 700,
-                                color: theme.text.onLight,
-                              }}
-                            >
-                              {r.nombre}
-                            </div>
-                            {r.descripcion && (
-                              <div
-                                style={{
-                                  fontSize: "12px",
-                                  color: theme.text.secondary,
-                                  marginTop: "2px",
-                                }}
-                              >
-                                {r.descripcion}
-                              </div>
-                            )}
-                            <div
-                              style={{
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                color: theme.accent.premium,
-                                marginTop: "4px",
-                              }}
-                            >
-                              Cuesta {r.costo} {verification.unidad}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            id={`btn-canjear-${r.id}`}
-                            onClick={() => setCanjeConfirm(r)}
-                            style={{
-                              backgroundColor: theme.colors.azulNoche,
-                              color: "#FFFFFF",
-                              border: "none",
-                              borderRadius: "8px",
-                              padding: "9px 16px",
-                              fontSize: "13px",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Canjear
-                          </button>
+                          Límite diario alcanzado: ya se sumaron{" "}
+                          {verification.sellosHoy} de{" "}
+                          {verification.maxSellosPorDia} sello(s) permitido(s)
+                          hoy.
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      )}
 
-                  {/* Recompensas no alcanzadas todavía */}
-                  {recompensasFuturas.length > 0 && (
-                    <div style={{ marginTop: "16px" }}>
-                      <span
+                    {/* INPUT DE MONTO DE LA COMPRA (si el modo lo usa) */}
+                    {usaMonto && (
+                      <div
+                        id="contenedor-monto-compra"
                         style={{
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          color: theme.text.secondary,
-                          display: "block",
-                          marginBottom: "8px",
+                          backgroundColor: "#F8FAFC",
+                          border: "1px solid #E2E8F0",
+                          borderRadius: "12px",
+                          padding: "16px",
+                          marginBottom: "16px",
                         }}
                       >
-                        Próximas recompensas del catálogo:
-                      </span>
+                        <label
+                          htmlFor="input-monto-compra"
+                          style={{
+                            display: "block",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            color: theme.text.onLight,
+                            marginBottom: "6px",
+                          }}
+                        >
+                          Monto de la compra ($)
+                        </label>
+                        <input
+                          id="input-monto-compra"
+                          type="number"
+                          step="any"
+                          min={0}
+                          placeholder="Ingresá el monto de la compra"
+                          value={montoCompra}
+                          onChange={(e) => setMontoCompra(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "12px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid #CBD5E1",
+                            fontSize: "16px",
+                            fontWeight: 600,
+                            boxSizing: "border-box",
+                            outline: "none",
+                          }}
+                        />
+
+                        {/* Aviso si modo 1 tiene mínimo configurado */}
+                        {verification.modoAcumulacion === "sello_por_visita" &&
+                          verification.montoMinimoSello && (
+                            <div
+                              id="aviso-monto-minimo"
+                              style={{
+                                marginTop: "8px",
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                color: "#B45309",
+                              }}
+                            >
+                              Mínimo ${verification.montoMinimoSello} para ganar
+                              el sello
+                            </div>
+                          )}
+
+                        {/* Preview en vivo */}
+                        {previewText && (
+                          <div
+                            id="preview-calculo-acumulacion"
+                            style={{
+                              marginTop: "10px",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              backgroundColor: "#EFF6FF",
+                              border: "1px solid #BFDBFE",
+                              color: "#1E40AF",
+                              fontSize: "14px",
+                              fontWeight: 700,
+                              textAlign: "center",
+                            }}
+                          >
+                            {previewText}
+                          </div>
+                        )}
+                        {!previewText && previewSubtext && (
+                          <div
+                            id="subtext-calculo-acumulacion"
+                            style={{
+                              marginTop: "8px",
+                              fontSize: "12px",
+                              color: theme.text.secondary,
+                            }}
+                          >
+                            {previewSubtext}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* INPUT Nº DE TICKET (PR-17: si pedirTicket está configurado) */}
+                    {verification.pedirTicket && (
+                      <div
+                        id="contenedor-nro-ticket"
+                        style={{
+                          backgroundColor: "#F8FAFC",
+                          border: "1px solid #E2E8F0",
+                          borderRadius: "12px",
+                          padding: "16px",
+                          marginBottom: "16px",
+                        }}
+                      >
+                        <label
+                          htmlFor="input-nro-ticket"
+                          style={{
+                            display: "block",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            color: theme.text.onLight,
+                            marginBottom: "6px",
+                          }}
+                        >
+                          Nº de ticket{" "}
+                          <span style={{ color: "#DC2626" }}>*</span>
+                        </label>
+                        <input
+                          id="input-nro-ticket"
+                          type="text"
+                          placeholder="Ej. TKT-00123"
+                          value={nroTicket}
+                          onChange={(e) => setNroTicket(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "12px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid #CBD5E1",
+                            fontSize: "15px",
+                            fontWeight: 600,
+                            boxSizing: "border-box",
+                            outline: "none",
+                          }}
+                        />
+                        <div
+                          style={{
+                            marginTop: "6px",
+                            fontSize: "12px",
+                            color: theme.text.secondary,
+                          }}
+                        >
+                          Campo obligatorio requerido por el comercio
+                        </div>
+                      </div>
+                    )}
+
+                    {/* BOTÓN SUMAR SELLOS / PUNTOS */}
+                    <div style={{ marginBottom: "24px" }}>
+                      <button
+                        type="button"
+                        id="btn-confirmar-sello"
+                        disabled={
+                          stampLoading ||
+                          (verification.modoAcumulacion !==
+                            "puntos_por_monto" &&
+                            verification.yaSelladoHoy) ||
+                          !canSubmitStamp
+                        }
+                        onClick={handleConfirmarSello}
+                        style={{
+                          width: "100%",
+                          backgroundColor: theme.button.primaryBg,
+                          color: theme.button.primaryText,
+                          border: "none",
+                          borderRadius: "10px",
+                          padding: "14px",
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          cursor:
+                            stampLoading ||
+                            (verification.modoAcumulacion !==
+                              "puntos_por_monto" &&
+                              verification.yaSelladoHoy) ||
+                            !canSubmitStamp
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity:
+                            stampLoading ||
+                            (verification.modoAcumulacion !==
+                              "puntos_por_monto" &&
+                              verification.yaSelladoHoy) ||
+                            !canSubmitStamp
+                              ? 0.6
+                              : 1,
+                          boxShadow: "0 4px 12px rgba(116, 172, 223, 0.35)",
+                        }}
+                      >
+                        {stampLoading
+                          ? "Procesando..."
+                          : verification.modoAcumulacion === "puntos_por_monto"
+                            ? previewText
+                              ? `Acreditar (${previewText})`
+                              : "Acreditar puntos"
+                            : previewText
+                              ? previewText
+                              : "Sumar 1 sello"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* CONTENIDO PESTAÑA CANJEAR (PR-17) */}
+                {activeTab === "canjear" && (
+                  <div
+                    id="tab-contenido-canjear"
+                    style={{ marginBottom: "20px" }}
+                  >
+                    <h3
+                      style={{
+                        margin: "0 0 12px 0",
+                        fontSize: "16px",
+                        fontWeight: 700,
+                        color: theme.text.onLight,
+                      }}
+                    >
+                      Recompensas canjeables ({recompensasCanjeables.length})
+                    </h3>
+
+                    {recompensasCanjeables.length === 0 ? (
+                      <div
+                        id="aviso-sin-recompensas-canjeables"
+                        style={{
+                          padding: "16px",
+                          backgroundColor: "#F8FAFC",
+                          borderRadius: "10px",
+                          border: "1px dashed #CBD5E1",
+                          textAlign: "center",
+                          fontSize: "13px",
+                          color: theme.text.secondary,
+                        }}
+                      >
+                        {verification.recompensas.length === 0
+                          ? "El comercio no tiene recompensas activas actualmente."
+                          : `El cliente no tiene ${verification.unidad} suficientes para canjear en este momento (mínimo ${recompensasFuturas[0]?.costo || 0} ${verification.unidad}).`}
+                      </div>
+                    ) : (
                       <div
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          gap: "8px",
+                          gap: "10px",
                         }}
                       >
-                        {recompensasFuturas.map((r) => (
+                        {recompensasCanjeables.map((r) => (
                           <div
                             key={r.id}
+                            id={`item-canjeable-${r.id}`}
                             style={{
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              padding: "10px 12px",
-                              backgroundColor: "#F8FAFC",
-                              border: "1px solid #E2E8F0",
-                              borderRadius: "8px",
-                              opacity: 0.7,
+                              padding: "14px",
+                              backgroundColor: "#FFFFFF",
+                              border: `1.5px solid ${theme.accent.premium}`,
+                              borderRadius: "10px",
+                              boxShadow: "0 2px 6px rgba(10, 37, 64, 0.04)",
                             }}
                           >
                             <div>
-                              <span
+                              <div
                                 style={{
-                                  fontSize: "13px",
-                                  fontWeight: 600,
+                                  fontSize: "15px",
+                                  fontWeight: 700,
                                   color: theme.text.onLight,
                                 }}
                               >
                                 {r.nombre}
-                              </span>
+                              </div>
+                              {r.descripcion && (
+                                <div
+                                  style={{
+                                    fontSize: "12px",
+                                    color: theme.text.secondary,
+                                    marginTop: "2px",
+                                  }}
+                                >
+                                  {r.descripcion}
+                                </div>
+                              )}
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  color: theme.accent.premium,
+                                  marginTop: "4px",
+                                }}
+                              >
+                                Cuesta {r.costo} {verification.unidad}
+                              </div>
                             </div>
-                            <span
+
+                            <button
+                              type="button"
+                              id={`btn-canjear-${r.id}`}
+                              onClick={() => setCanjeConfirm(r)}
                               style={{
-                                fontSize: "12px",
-                                color: theme.text.secondary,
+                                backgroundColor: theme.colors.azulNoche,
+                                color: "#FFFFFF",
+                                border: "none",
+                                borderRadius: "8px",
+                                padding: "9px 16px",
+                                fontSize: "13px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
                               }}
                             >
-                              {r.costo} {verification.unidad} (faltan{" "}
-                              {r.costo - verification.saldoDisponible})
-                            </span>
+                              Canjear
+                            </button>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+
+                    {/* Recompensas no alcanzadas todavía */}
+                    {recompensasFuturas.length > 0 && (
+                      <div style={{ marginTop: "20px" }}>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: theme.text.secondary,
+                            display: "block",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Otras recompensas del catálogo:
+                        </span>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "8px",
+                          }}
+                        >
+                          {recompensasFuturas.map((r) => (
+                            <div
+                              key={r.id}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                padding: "10px 12px",
+                                backgroundColor: "#F8FAFC",
+                                border: "1px solid #E2E8F0",
+                                borderRadius: "8px",
+                                opacity: 0.7,
+                              }}
+                            >
+                              <div>
+                                <span
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: 600,
+                                    color: theme.text.onLight,
+                                  }}
+                                >
+                                  {r.nombre}
+                                </span>
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: "12px",
+                                  color: theme.text.secondary,
+                                }}
+                              >
+                                {r.costo} {verification.unidad} (faltan{" "}
+                                {r.costo - verification.saldoDisponible})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Cancelar escaneo */}
                 <button

@@ -88,8 +88,11 @@ export const merchants = pgTable("merchants", {
   // valores: 'sello_por_visita' | 'sello_por_monto' | 'puntos_por_monto'
   montoMinimoSello: numeric("monto_minimo_sello"), // modo 1: compra mínima para ganar el sello (null = sin mínimo)
   montoPorSello: numeric("monto_por_sello"), // modo 2: 1 sello cada X monto
-  puntosPorUnidad: numeric("puntos_por_unidad"), // modo 3: N puntos por cada $1 (ej. 1)
+  puntosPorUnidad: numeric("puntos_por_unidad"), // modo 3: N puntos por cada $1
   bonoBienvenida: integer("bono_bienvenida").notNull().default(0), // PR-15: unidades de regalo al registrarse
+  bonoCumpleanios: integer("bono_cumpleanios").notNull().default(0), // PR-17: unidades de regalo de cumpleaños
+  pedirTicket: boolean("pedir_ticket").notNull().default(false), // PR-17: requerir nro de ticket al sellar
+  maxUnidadesPorTicket: integer("max_unidades_por_ticket"), // PR-17: tope de sellos/puntos por ticket
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -103,6 +106,8 @@ export const customers = pgTable("customers", {
     .notNull()
     .default(false), // PR-15
   marketingConsentAt: timestamp("marketing_consent_at"), // PR-15
+  terminosAceptadosAt: timestamp("terminos_aceptados_at"), // PR-18
+  privacidadAceptadaAt: timestamp("privacidad_aceptada_at"), // PR-18
   fechaNacimiento: date("fecha_nacimiento"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -250,12 +255,34 @@ export const campanias = pgTable(
     cuerpo: text("cuerpo").notNull(),
     estado: text("estado").notNull().default("borrador"), // PR-16: "borrador" | "programada" | "enviada"
     programadaPara: timestamp("programada_para"), // PR-16: nullable
+    segmento: text("segmento").notNull().default("todos"), // PR-17: "todos" | "cumple_mes" | "inactivos_30" | "con_canjes" | "nuevos_30"
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
     index("campanias_merchant_id_idx").on(table.merchantId),
     index("campanias_created_at_idx").on(table.createdAt),
     index("campanias_programada_para_idx").on(table.programadaPara),
+    index("campanias_segmento_idx").on(table.segmento),
+  ],
+);
+
+// tickets: auditoría anti-fraude de tickets únicos cargados por comercio (PR-17)
+export const tickets = pgTable(
+  "tickets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    merchantId: uuid("merchant_id")
+      .notNull()
+      .references(() => merchants.id, { onDelete: "cascade" }),
+    nroTicket: text("nro_ticket").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("tickets_merchant_id_nro_ticket_unique").on(
+      table.merchantId,
+      table.nroTicket,
+    ),
+    index("tickets_merchant_id_idx").on(table.merchantId),
   ],
 );
 
@@ -305,6 +332,8 @@ export type Stamp = typeof stamps.$inferSelect;
 export type Reward = typeof rewards.$inferSelect;
 export type Redemption = typeof redemptions.$inferSelect;
 export type Campania = typeof campanias.$inferSelect;
+export type Ticket = typeof tickets.$inferSelect;
+export type NewTicket = typeof tickets.$inferInsert;
 export type SaludoCumple = typeof saludosCumple.$inferSelect;
 export type NewSaludoCumple = typeof saludosCumple.$inferInsert;
 export type PointLedger = typeof pointsLedger.$inferSelect;

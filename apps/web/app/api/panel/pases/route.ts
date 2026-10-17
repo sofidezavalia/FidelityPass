@@ -14,9 +14,11 @@ export async function GET() {
     const rows = await db
       .select({
         id: passes.id,
+        customerId: passes.customerId,
         serialNumber: passes.serialNumber,
         codigoCorto: passes.codigoCorto,
         clienteNombre: customers.nombre,
+        telefono: customers.telefono,
         estado: passes.estado,
         esPrueba: passes.esPrueba,
         createdAt: passes.createdAt,
@@ -28,9 +30,11 @@ export async function GET() {
       .where(eq(passes.merchantId, merchant.id))
       .groupBy(
         passes.id,
+        passes.customerId,
         passes.serialNumber,
         passes.codigoCorto,
         customers.nombre,
+        customers.telefono,
         passes.estado,
         passes.esPrueba,
         passes.createdAt,
@@ -39,9 +43,11 @@ export async function GET() {
 
     const payload = rows.map((r) => ({
       id: r.id,
+      customerId: r.customerId,
       serialNumber: r.serialNumber,
       codigoCorto: r.codigoCorto,
       clienteNombre: r.clienteNombre,
+      telefono: r.telefono,
       estado: r.estado,
       esPrueba: r.esPrueba,
       sellos: Number(r.puntosTotal ?? 0),
@@ -56,9 +62,11 @@ export async function GET() {
   const rows = await db
     .select({
       id: passes.id,
+      customerId: passes.customerId,
       serialNumber: passes.serialNumber,
       codigoCorto: passes.codigoCorto,
       clienteNombre: customers.nombre,
+      telefono: customers.telefono,
       estado: passes.estado,
       esPrueba: passes.esPrueba,
       createdAt: passes.createdAt,
@@ -70,9 +78,11 @@ export async function GET() {
     .where(eq(passes.merchantId, merchant.id))
     .groupBy(
       passes.id,
+      passes.customerId,
       passes.serialNumber,
       passes.codigoCorto,
       customers.nombre,
+      customers.telefono,
       passes.estado,
       passes.esPrueba,
       passes.createdAt,
@@ -81,9 +91,11 @@ export async function GET() {
 
   const payload = rows.map((r) => ({
     id: r.id,
+    customerId: r.customerId,
     serialNumber: r.serialNumber,
     codigoCorto: r.codigoCorto,
     clienteNombre: r.clienteNombre,
+    telefono: r.telefono,
     estado: r.estado,
     esPrueba: r.esPrueba,
     sellos: Number(r.sellosCount),
