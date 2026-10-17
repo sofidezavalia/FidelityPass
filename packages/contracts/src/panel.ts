@@ -11,6 +11,7 @@ export const paseListItemSchema = z.object({
   serialNumber: z.string().optional(),
   codigoCorto: z.string().optional(),
   clienteNombre: z.string(),
+  telefono: z.string().nullable().optional(),
   estado: z.enum(["activa", "inactiva"]),
   esPrueba: z.boolean().default(false),
   sellos: z.number().int().nonnegative(),

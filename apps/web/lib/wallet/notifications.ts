@@ -1,6 +1,13 @@
 import { mensajeSelloSchema } from "@fidelitypass/contracts";
-import { db, passes } from "@fidelitypass/db";
-import { and, eq } from "drizzle-orm";
+import {
+  customers,
+  db,
+  passes,
+  pointsLedger,
+  redemptions,
+  stamps,
+} from "@fidelitypass/db";
+import { and, eq, gte } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 import { env } from "../env";
 import { isAppleWalletConfigured, pushStampsUpdate } from "./apple";
@@ -17,6 +24,7 @@ export interface SendCampaignArgs {
   merchantId: string;
   titulo: string;
   cuerpo: string;
+  segmento?: string;
 }
 
 export interface SendBirthdayGreetingArgs {
@@ -24,6 +32,8 @@ export interface SendBirthdayGreetingArgs {
   merchantNombre: string;
   googleWalletObjectId?: string | null;
   serialNumber?: string | null;
+  bono?: number;
+  unidad?: "sellos" | "puntos";
 }
 
 /**
@@ -166,26 +176,133 @@ export async function notifyStampAdded(
  * Si falla un envío individual, se loguea y continúa con los restantes.
  * Devuelve el número de pases activos alcanzados.
  */
-export async function sendCampaign(
-  args: SendCampaignArgs,
-): Promise<{ enviadas: number }> {
-  const { merchantId, titulo, cuerpo } = args;
+/**
+ * Obtiene los pases objetivo según el segmento de audiencia configurado (PR-17).
+ * Segmentos disponibles:
+ * - 'todos': todos los pases activos del comercio.
+ * - 'cumple_mes': clientes que cumplen años en el mes actual.
+ * - 'inactivos_30': pases activos sin movimientos (sellos, puntos o canjes) en los últimos 30 días.
+ * - 'con_canjes': pases activos con al menos un canje registrado (los más fieles).
+ * - 'nuevos_30': pases activos creados en los últimos 30 días.
+ */
+export async function getTargetPassesForSegment(
+  merchantId: string,
+  segmento: string = "todos",
+) {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  // 1. Obtener todos los pases activos del comercio
-  const activePasses = await db
+  // Consulta base: pases activos del comercio
+  const baseActivePasses = await db
     .select({
       id: passes.id,
       serialNumber: passes.serialNumber,
       googleWalletObjectId: passes.googleWalletObjectId,
+      customerId: passes.customerId,
+      createdAt: passes.createdAt,
+      fechaNacimiento: customers.fechaNacimiento,
     })
     .from(passes)
+    .innerJoin(customers, eq(passes.customerId, customers.id))
     .where(and(eq(passes.merchantId, merchantId), eq(passes.estado, "activa")));
+
+  if (segmento === "todos") {
+    return baseActivePasses;
+  }
+
+  if (segmento === "nuevos_30") {
+    return baseActivePasses.filter((p) => p.createdAt >= thirtyDaysAgo);
+  }
+
+  if (segmento === "cumple_mes") {
+    const currentMonth = new Date().getMonth() + 1; // 1-12
+    return baseActivePasses.filter((p) => {
+      if (!p.fechaNacimiento) return false;
+      const m =
+        typeof p.fechaNacimiento === "string"
+          ? Number.parseInt(p.fechaNacimiento.split("-")[1] || "0", 10)
+          : new Date(p.fechaNacimiento).getMonth() + 1;
+      return m === currentMonth;
+    });
+  }
+
+  if (segmento === "con_canjes") {
+    const redPasses = await db
+      .selectDistinct({ passId: redemptions.passId })
+      .from(redemptions)
+      .where(eq(redemptions.merchantId, merchantId));
+    const passIdsWithCanjes = new Set(redPasses.map((r) => r.passId));
+    return baseActivePasses.filter((p) => passIdsWithCanjes.has(p.id));
+  }
+
+  if (segmento === "inactivos_30") {
+    // Pases activos SIN movimientos (sellos, puntos o canjes) en los últimos 30 días
+    const recentStamps = await db
+      .selectDistinct({ passId: stamps.passId })
+      .from(stamps)
+      .where(
+        and(
+          eq(stamps.merchantId, merchantId),
+          gte(stamps.createdAt, thirtyDaysAgo),
+        ),
+      );
+    const recentPoints = await db
+      .selectDistinct({ passId: pointsLedger.passId })
+      .from(pointsLedger)
+      .where(
+        and(
+          eq(pointsLedger.merchantId, merchantId),
+          gte(pointsLedger.createdAt, thirtyDaysAgo),
+        ),
+      );
+    const recentRedemptions = await db
+      .selectDistinct({ passId: redemptions.passId })
+      .from(redemptions)
+      .where(
+        and(
+          eq(redemptions.merchantId, merchantId),
+          gte(redemptions.createdAt, thirtyDaysAgo),
+        ),
+      );
+
+    const activePassIdsWithRecentMovements = new Set<string>();
+    for (const r of recentStamps) {
+      if (r.passId) activePassIdsWithRecentMovements.add(r.passId);
+    }
+    for (const r of recentPoints) {
+      if (r.passId) activePassIdsWithRecentMovements.add(r.passId);
+    }
+    for (const r of recentRedemptions) {
+      if (r.passId) activePassIdsWithRecentMovements.add(r.passId);
+    }
+
+    return baseActivePasses.filter(
+      (p) => !activePassIdsWithRecentMovements.has(p.id),
+    );
+  }
+
+  return baseActivePasses;
+}
+
+/**
+ * Envío de campaña push masiva a las tarjetas del segmento seleccionado (PR-10 / PR-16 / PR-17).
+ * Fan-out independiente:
+ * - Google Wallet: Messages API por objeto.
+ * - Apple Wallet: push a los dispositivos registrados de cada pase.
+ * Si falla un envío individual, se loguea y continúa con los restantes.
+ * Devuelve el número de pases enviados y el alcance total.
+ */
+export async function sendCampaign(
+  args: SendCampaignArgs,
+): Promise<{ enviadas: number; alcance: number }> {
+  const { merchantId, titulo, cuerpo, segmento = "todos" } = args;
+
+  const targetPasses = await getTargetPassesForSegment(merchantId, segmento);
 
   const googleConfigured = isGoogleWalletConfigured();
   const appleConfigured = isAppleWalletConfigured();
 
-  // Fan-out a todas las tarjetas activas
-  for (const pass of activePasses) {
+  // Fan-out a las tarjetas del segmento
+  for (const pass of targetPasses) {
     // Google Wallet Messages API
     if (googleConfigured && pass.googleWalletObjectId) {
       try {
@@ -215,7 +332,7 @@ export async function sendCampaign(
     }
   }
 
-  return { enviadas: activePasses.length };
+  return { enviadas: targetPasses.length, alcance: targetPasses.length };
 }
 
 export interface SendSinglePassCampaignArgs {
@@ -267,19 +384,37 @@ export async function sendSinglePassCampaign(
 
 /**
  * Envía un push de saludo de cumpleaños al pase activo del cliente.
- * Formato del mensaje:
+ * Si bono > 0:
+ * "¡Feliz cumpleaños, {nombre}! 🎉 Te regalamos N sellos/puntos en {comercio}."
+ * Si bono == 0:
  * "¡Feliz cumpleaños, {nombre}! 🎉 Pasá por {comercio} que tenemos algo para vos."
- * Patrón "integración dormida":
- * - Si ninguna plataforma está configurada, no envía nada y lo loguea (no falla).
- * - Si Google Wallet está configurada: Messages API por objeto.
- * - Si Apple Wallet está configurada: push APNs a los dispositivos registrados.
  */
 export async function sendBirthdayGreeting(
   args: SendBirthdayGreetingArgs,
 ): Promise<void> {
-  const { customerNombre, merchantNombre, googleWalletObjectId, serialNumber } =
-    args;
-  const pushMessage = `¡Feliz cumpleaños, ${customerNombre}! 🎉 Pasá por ${merchantNombre} que tenemos algo para vos.`;
+  const {
+    customerNombre,
+    merchantNombre,
+    googleWalletObjectId,
+    serialNumber,
+    bono = 0,
+    unidad = "sellos",
+  } = args;
+
+  const unidadTexto =
+    unidad === "puntos"
+      ? bono === 1
+        ? "punto"
+        : "puntos"
+      : bono === 1
+        ? "sello"
+        : "sellos";
+
+  const pushMessage =
+    bono > 0
+      ? `¡Feliz cumpleaños, ${customerNombre}! 🎉 Te regalamos ${bono} ${unidadTexto} en ${merchantNombre}.`
+      : `¡Feliz cumpleaños, ${customerNombre}! 🎉 Pasá por ${merchantNombre} que tenemos algo para vos.`;
+
   const titulo = `¡Feliz cumpleaños, ${customerNombre}! 🎉`;
 
   const googleConfigured = isGoogleWalletConfigured();

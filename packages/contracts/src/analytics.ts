@@ -22,6 +22,7 @@ export const analyticsResumenSchema = z.object({
   unidadesOtorgadas: z.number().int().nonnegative(),
   canjesRealizados: z.number().int().nonnegative(),
   tasaCanje: z.number().nonnegative(),
+  tasaRetencion: z.number().nonnegative().default(0),
   unidad: z.enum(["sellos", "puntos"]),
   serieDiaria: z.array(serieDiariaItemSchema),
 });

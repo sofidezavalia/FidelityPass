@@ -3,6 +3,15 @@ import { z } from "zod";
 export const campaniaEstadoEnum = z.enum(["borrador", "programada", "enviada"]);
 export type CampaniaEstado = z.infer<typeof campaniaEstadoEnum>;
 
+export const campaniaSegmentoEnum = z.enum([
+  "todos",
+  "cumple_mes",
+  "inactivos_30",
+  "con_canjes",
+  "nuevos_30",
+]);
+export type CampaniaSegmento = z.infer<typeof campaniaSegmentoEnum>;
+
 export const campaniaSchema = z
   .object({
     titulo: z
@@ -14,6 +23,7 @@ export const campaniaSchema = z
       .min(2, "El mensaje es obligatorio")
       .max(280, "El mensaje no puede superar los 280 caracteres"),
     accion: z.enum(["borrador", "enviar", "programar"]).default("enviar"),
+    segmento: campaniaSegmentoEnum.default("todos"),
     programadaPara: z.string().datetime().optional().nullable(),
   })
   .superRefine((data, ctx) => {
@@ -48,6 +58,7 @@ export const editarCampaniaSchema = z
       .min(2, "El mensaje es obligatorio")
       .max(280, "El mensaje no puede superar los 280 caracteres")
       .optional(),
+    segmento: campaniaSegmentoEnum.optional(),
     programadaPara: z.string().datetime().optional().nullable(),
   })
   .superRefine((data, ctx) => {
@@ -75,6 +86,8 @@ export const campaniaListItemSchema = z.object({
   titulo: z.string(),
   cuerpo: z.string(),
   estado: campaniaEstadoEnum,
+  segmento: campaniaSegmentoEnum.optional(),
+  alcance: z.number().int().nonnegative().optional(),
   programadaPara: z.string().nullable().optional(),
   createdAt: z.string(),
 });

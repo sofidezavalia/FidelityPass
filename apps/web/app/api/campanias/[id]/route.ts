@@ -65,6 +65,9 @@ export async function PATCH(
   if (validation.data.cuerpo !== undefined) {
     updateData.cuerpo = validation.data.cuerpo;
   }
+  if (validation.data.segmento !== undefined) {
+    updateData.segmento = validation.data.segmento;
+  }
   if (validation.data.programadaPara !== undefined) {
     updateData.programadaPara = validation.data.programadaPara
       ? new Date(validation.data.programadaPara)

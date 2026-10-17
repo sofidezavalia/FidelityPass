@@ -78,6 +78,13 @@
       "when": 1792237500000,
       "tag": "0010_campanias_personalizacion",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792241000000,
+      "tag": "0011_segunda_vuelta_tickets_segmentos",
+      "breakpoints": true
     }
   ]
 }

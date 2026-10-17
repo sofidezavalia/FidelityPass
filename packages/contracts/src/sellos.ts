@@ -14,6 +14,7 @@ export const sellarSchema = z
   .object({
     serialNumber: z.string().min(1, "QR inválido").optional(),
     codigoCorto: z.string().min(1, "Código inválido").optional(),
+    nroTicket: z.string().trim().optional(),
     monto: z
       .number()
       .positive("El monto debe ser mayor a 0")
@@ -34,6 +35,8 @@ export const selloResultadoSchema = z.object({
   saldoDisponible: z.number().int().nonnegative().optional(),
   unidadesOtorgadas: z.number().int().positive().optional(),
   mensajeTope: z.string().optional(),
+  topeAplicado: z.boolean().optional(),
+  nroTicket: z.string().optional(),
 });
 
 export const ultimaOperacionSchema = z.object({

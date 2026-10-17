@@ -40,6 +40,9 @@ export async function GET() {
       ? Number(merchant.puntosPorUnidad)
       : null,
     bonoBienvenida: merchant.bonoBienvenida ?? 0,
+    bonoCumpleanios: merchant.bonoCumpleanios ?? 0,
+    pedirTicket: merchant.pedirTicket ?? false,
+    maxUnidadesPorTicket: merchant.maxUnidadesPorTicket ?? null,
     tieneMovimientos,
   });
 }
@@ -81,6 +84,9 @@ export async function PATCH(request: NextRequest) {
     montoPorSello,
     puntosPorUnidad,
     bonoBienvenida,
+    bonoCumpleanios,
+    pedirTicket,
+    maxUnidadesPorTicket,
   } = validation.data;
 
   // Si intenta cambiar de modo, validar que no tenga sellos ni puntos previos
@@ -116,6 +122,16 @@ export async function PATCH(request: NextRequest) {
       modoAcumulacion,
       bonoBienvenida:
         bonoBienvenida !== undefined ? bonoBienvenida : merchant.bonoBienvenida,
+      bonoCumpleanios:
+        bonoCumpleanios !== undefined
+          ? bonoCumpleanios
+          : merchant.bonoCumpleanios,
+      pedirTicket:
+        pedirTicket !== undefined ? pedirTicket : merchant.pedirTicket,
+      maxUnidadesPorTicket:
+        maxUnidadesPorTicket !== undefined
+          ? maxUnidadesPorTicket
+          : merchant.maxUnidadesPorTicket,
       montoMinimoSello:
         montoMinimoSello !== undefined
           ? montoMinimoSello !== null
@@ -157,5 +173,8 @@ export async function PATCH(request: NextRequest) {
       ? Number(updated.puntosPorUnidad)
       : null,
     bonoBienvenida: updated.bonoBienvenida ?? 0,
+    bonoCumpleanios: updated.bonoCumpleanios ?? 0,
+    pedirTicket: updated.pedirTicket ?? false,
+    maxUnidadesPorTicket: updated.maxUnidadesPorTicket ?? null,
   });
 }

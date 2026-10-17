@@ -191,12 +191,64 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 7. Tasa de retención (PR-17): % de miembros activos con al menos un movimiento en los últimos 30 días
+  const thirtyDaysAgoRetention = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  );
+
+  const stampsPasses = await db
+    .selectDistinct({ passId: stamps.passId })
+    .from(stamps)
+    .innerJoin(passes, eq(stamps.passId, passes.id))
+    .where(
+      and(
+        eq(stamps.merchantId, merchant.id),
+        eq(passes.estado, "activa"),
+        gte(stamps.createdAt, thirtyDaysAgoRetention),
+      ),
+    );
+
+  const pointsPasses = await db
+    .selectDistinct({ passId: pointsLedger.passId })
+    .from(pointsLedger)
+    .innerJoin(passes, eq(pointsLedger.passId, passes.id))
+    .where(
+      and(
+        eq(pointsLedger.merchantId, merchant.id),
+        eq(passes.estado, "activa"),
+        gte(pointsLedger.createdAt, thirtyDaysAgoRetention),
+      ),
+    );
+
+  const redemptionsPasses = await db
+    .selectDistinct({ passId: redemptions.passId })
+    .from(redemptions)
+    .innerJoin(passes, eq(redemptions.passId, passes.id))
+    .where(
+      and(
+        eq(redemptions.merchantId, merchant.id),
+        eq(passes.estado, "activa"),
+        gte(redemptions.createdAt, thirtyDaysAgoRetention),
+      ),
+    );
+
+  const activeWithMovement = new Set<string>();
+  for (const s of stampsPasses) activeWithMovement.add(s.passId);
+  for (const p of pointsPasses) activeWithMovement.add(p.passId);
+  for (const r of redemptionsPasses) activeWithMovement.add(r.passId);
+
+  const tasaRetencion =
+    miembrosActivos > 0
+      ? Math.round((activeWithMovement.size / miembrosActivos) * 100 * 10) / 10
+      : 0;
+
   return NextResponse.json({
     miembrosActivos,
     nuevosMiembros,
     unidadesOtorgadas,
     canjesRealizados,
     tasaCanje,
+    tasaRetencion,
     unidad,
     serieDiaria,
   });

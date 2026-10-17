@@ -69,16 +69,19 @@ export async function POST(
     );
   }
 
-  const { enviadas } = await sendCampaign({
+  const { enviadas, alcance } = await sendCampaign({
     merchantId: merchant.id,
     titulo: claimed.titulo,
     cuerpo: claimed.cuerpo,
+    segmento: claimed.segmento,
   });
 
   return NextResponse.json({
     ok: true,
     id: claimed.id,
     estado: "enviada",
+    segmento: claimed.segmento,
+    alcance,
     enviadas,
   });
 }

@@ -3,7 +3,9 @@ import {
   db,
   merchants,
   passes,
+  pointsLedger,
   saludosCumple,
+  stamps,
 } from "@fidelitypass/db";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
@@ -82,13 +84,16 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    // Buscar pases activos del cliente junto con el nombre del comercio
+    // Buscar pases activos del cliente junto con los datos de comercio y bono de cumpleaños
     const activePasses = await db
       .select({
         passId: passes.id,
+        merchantId: passes.merchantId,
         serialNumber: passes.serialNumber,
         googleWalletObjectId: passes.googleWalletObjectId,
         merchantNombre: merchants.nombre,
+        bonoCumpleanios: merchants.bonoCumpleanios,
+        modoAcumulacion: merchants.modoAcumulacion,
       })
       .from(passes)
       .innerJoin(merchants, eq(passes.merchantId, merchants.id))
@@ -101,14 +106,47 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    // Enviar push a cada pase activo
+    // Procesar y enviar push a cada pase activo
     for (const pass of activePasses) {
+      // Si el comercio tiene configurado regalo de cumpleaños (> 0), acreditar antes del push
+      if (pass.bonoCumpleanios > 0) {
+        try {
+          if (pass.modoAcumulacion === "puntos_por_monto") {
+            await db.insert(pointsLedger).values({
+              passId: pass.passId,
+              merchantId: pass.merchantId,
+              staffId: null,
+              puntos: pass.bonoCumpleanios,
+              montoCompra: null,
+            });
+          } else {
+            const stampEntries = Array.from(
+              { length: pass.bonoCumpleanios },
+              () => ({
+                passId: pass.passId,
+                merchantId: pass.merchantId,
+                staffId: null,
+              }),
+            );
+            await db.insert(stamps).values(stampEntries);
+          }
+        } catch (creditErr) {
+          console.error(
+            `[Cron Cumpleaños] Error al acreditar bono de cumpleaños a pase ${pass.passId}:`,
+            creditErr,
+          );
+        }
+      }
+
       try {
         await sendBirthdayGreeting({
           customerNombre: customer.nombre,
           merchantNombre: pass.merchantNombre,
           googleWalletObjectId: pass.googleWalletObjectId,
           serialNumber: pass.serialNumber,
+          bono: pass.bonoCumpleanios,
+          unidad:
+            pass.modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos",
         });
       } catch (err) {
         console.error(

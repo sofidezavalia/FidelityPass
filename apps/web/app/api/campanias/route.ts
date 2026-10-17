@@ -5,7 +5,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedMerchant } from "../../../lib/get-authenticated-merchant";
 import { isAppleWalletConfigured } from "../../../lib/wallet/apple";
 import { isGoogleWalletConfigured } from "../../../lib/wallet/google";
-import { sendCampaign } from "../../../lib/wallet/notifications";
+import {
+  getTargetPassesForSegment,
+  sendCampaign,
+} from "../../../lib/wallet/notifications";
 
 /**
  * GET /api/campanias
@@ -23,6 +26,7 @@ export async function GET() {
       titulo: campanias.titulo,
       cuerpo: campanias.cuerpo,
       estado: campanias.estado,
+      segmento: campanias.segmento,
       programadaPara: campanias.programadaPara,
       createdAt: campanias.createdAt,
     })
@@ -36,9 +40,9 @@ export async function GET() {
 /**
  * POST /api/campanias
  * Según accion:
- * - "borrador": guarda en borrador
- * - "enviar": valida wallets, guarda como enviada y ejecuta fan-out push (PR-10)
- * - "programar": guarda como programada con programadaPara (futura)
+ * - "borrador": guarda en borrador con segmento
+ * - "enviar": valida wallets, guarda como enviada y ejecuta fan-out push filtrando por segmento (PR-17)
+ * - "programar": guarda como programada con programadaPara (futura) y segmento
  */
 export async function POST(request: NextRequest) {
   const { errorResponse, merchant } = await getAuthenticatedMerchant();
@@ -64,7 +68,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { titulo, cuerpo, accion, programadaPara } = validation.data;
+  const { titulo, cuerpo, accion, programadaPara, segmento } = validation.data;
+  const targetPasses = await getTargetPassesForSegment(
+    merchant.id,
+    segmento ?? "todos",
+  );
+  const alcance = targetPasses.length;
 
   if (accion === "borrador") {
     const [nueva] = await db
@@ -74,6 +83,7 @@ export async function POST(request: NextRequest) {
         titulo,
         cuerpo,
         estado: "borrador",
+        segmento: segmento ?? "todos",
         programadaPara: programadaPara ? new Date(programadaPara) : null,
       })
       .returning();
@@ -86,7 +96,13 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { ok: true, id: nueva.id, estado: "borrador" },
+      {
+        ok: true,
+        id: nueva.id,
+        estado: "borrador",
+        segmento: nueva.segmento,
+        alcance,
+      },
       { status: 201 },
     );
   }
@@ -106,6 +122,7 @@ export async function POST(request: NextRequest) {
         titulo,
         cuerpo,
         estado: "programada",
+        segmento: segmento ?? "todos",
         programadaPara: new Date(programadaPara),
       })
       .returning();
@@ -122,6 +139,8 @@ export async function POST(request: NextRequest) {
         ok: true,
         id: nueva.id,
         estado: "programada",
+        segmento: nueva.segmento,
+        alcance,
         programadaPara: nueva.programadaPara?.toISOString(),
       },
       { status: 201 },
@@ -138,7 +157,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 1. Guarda la fila en campanias con estado "enviada"
+  // 1. Guarda la fila en campanias con estado "enviada" y segmento
   const [nueva] = await db
     .insert(campanias)
     .values({
@@ -146,6 +165,7 @@ export async function POST(request: NextRequest) {
       titulo,
       cuerpo,
       estado: "enviada",
+      segmento: segmento ?? "todos",
     })
     .returning();
 
@@ -156,15 +176,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2. Fan-out a todos los pases activos del comercio
+  // 2. Fan-out a los pases del segmento del comercio
   const { enviadas } = await sendCampaign({
     merchantId: merchant.id,
     titulo,
     cuerpo,
+    segmento: segmento ?? "todos",
   });
 
   return NextResponse.json(
-    { ok: true, id: nueva.id, estado: "enviada", enviadas },
+    {
+      ok: true,
+      id: nueva.id,
+      estado: "enviada",
+      segmento: nueva.segmento,
+      alcance,
+      enviadas,
+    },
     { status: 201 },
   );
 }
