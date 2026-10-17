@@ -57,6 +57,13 @@
       "when": 1792185286684,
       "tag": "0007_curly_dakota_north",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792196000000,
+      "tag": "0008_modelos_acumulacion",
+      "breakpoints": true
     }
   ]
 }

@@ -12,13 +12,22 @@ export const staffLoginSchema = z.object({
 
 export const sellarSchema = z.object({
   serialNumber: z.string().min(1, "QR inválido"),
+  monto: z
+    .number()
+    .positive("El monto debe ser mayor a 0")
+    .optional()
+    .nullable(),
 });
 
 export const selloResultadoSchema = z.object({
   ok: z.literal(true),
   clienteNombre: z.string(),
-  sellosAcumulados: z.number().int().nonnegative(),
+  unidad: z.enum(["sellos", "puntos"]).optional(),
+  sellosAcumulados: z.number().int().nonnegative().optional(),
+  puntosAcumulados: z.number().int().nonnegative().optional(),
   saldoDisponible: z.number().int().nonnegative().optional(),
+  unidadesOtorgadas: z.number().int().positive().optional(),
+  mensajeTope: z.string().optional(),
 });
 
 export type CrearStaffInput = z.infer<typeof crearStaffSchema>;
