@@ -11,10 +11,15 @@ function NuevoPaseForm() {
 
   const [merchantName, setMerchantName] = useState<string>("");
   const [appleWalletEnabled, setAppleWalletEnabled] = useState(false);
+  const [bonoBienvenida, setBonoBienvenida] = useState(0);
+  const [modoAcumulacion, setModoAcumulacion] =
+    useState<string>("sello_por_visita");
   const [fetchingMerchant, setFetchingMerchant] = useState(true);
   const [merchantNotFound, setMerchantNotFound] = useState(false);
 
   const [nombreCliente, setNombreCliente] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [consentimientoMarketing, setConsentimientoMarketing] = useState(false); // Honest default: unchecked
   const [error, setError] = useState("");
   const [loadingWallet, setLoadingWallet] = useState<"google" | "apple" | null>(
     null,
@@ -34,6 +39,8 @@ function NuevoPaseForm() {
       .then((data) => {
         setMerchantName(data.nombre);
         setAppleWalletEnabled(Boolean(data.isAppleWalletConfigured));
+        setBonoBienvenida(Number(data.bonoBienvenida ?? 0));
+        setModoAcumulacion(data.modoAcumulacion || "sello_por_visita");
         setFetchingMerchant(false);
       })
       .catch(() => {
@@ -103,12 +110,12 @@ function NuevoPaseForm() {
     const validation = emitirPaseSchema.safeParse({
       merchantId,
       nombreCliente: nombreCliente.trim(),
+      telefono: telefono.trim(),
+      consentimientoMarketing,
     });
 
     if (!validation.success) {
-      setError(
-        validation.error.issues[0]?.message || "Ingresá un nombre válido",
-      );
+      setError(validation.error.issues[0]?.message || "Ingresá datos válidos");
       return;
     }
 
@@ -156,6 +163,9 @@ function NuevoPaseForm() {
     }
   };
 
+  const unidadNombre =
+    modoAcumulacion === "puntos_por_monto" ? "puntos" : "sellos";
+
   return (
     <div
       style={{
@@ -169,7 +179,7 @@ function NuevoPaseForm() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: "28px" }}>
+      <div style={{ textAlign: "center", marginBottom: "24px" }}>
         <div
           style={{
             display: "inline-block",
@@ -208,6 +218,31 @@ function NuevoPaseForm() {
         </p>
       </div>
 
+      {/* Banner de Bono de Bienvenida (PR-15) */}
+      {bonoBienvenida > 0 && (
+        <div
+          id="banner-bono-bienvenida"
+          style={{
+            backgroundColor: "#F0FDF4",
+            border: "1px solid #BBF7D0",
+            borderRadius: "12px",
+            padding: "12px 16px",
+            marginBottom: "20px",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            color: "#166534",
+            fontSize: "14px",
+            fontWeight: 700,
+          }}
+        >
+          <span style={{ fontSize: "20px" }}>🎁</span>
+          <span>
+            Te regalamos {bonoBienvenida} {unidadNombre} por registrarte
+          </span>
+        </div>
+      )}
+
       {error && (
         <div
           id="error-emision"
@@ -227,7 +262,8 @@ function NuevoPaseForm() {
       )}
 
       <div>
-        <div style={{ marginBottom: "24px" }}>
+        {/* Campo Nombre */}
+        <div style={{ marginBottom: "18px" }}>
           <label
             htmlFor="nombre-cliente"
             style={{
@@ -248,7 +284,7 @@ function NuevoPaseForm() {
             onChange={(e) => setNombreCliente(e.target.value)}
             style={{
               width: "100%",
-              padding: "14px 16px",
+              padding: "12px 14px",
               borderRadius: "10px",
               border: `1px solid ${error ? "#EF4444" : "#CBD5E1"}`,
               fontSize: "15px",
@@ -262,11 +298,83 @@ function NuevoPaseForm() {
               display: "block",
               fontSize: "12px",
               color: theme.text.secondary,
-              marginTop: "6px",
+              marginTop: "4px",
             }}
           >
             Aparecerá en el frente de tu tarjeta para verificar los sellos.
           </span>
+        </div>
+
+        {/* Campo Teléfono / WhatsApp (PR-15: opcional) */}
+        <div style={{ marginBottom: "18px" }}>
+          <label
+            htmlFor="telefono-cliente"
+            style={{
+              display: "block",
+              marginBottom: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: theme.text.onLight,
+            }}
+          >
+            Teléfono / WhatsApp{" "}
+            <span style={{ fontWeight: 400, color: theme.text.secondary }}>
+              (opcional)
+            </span>
+          </label>
+          <input
+            id="telefono-cliente"
+            type="tel"
+            placeholder="Ej. +54 9 11 1234-5678"
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              borderRadius: "10px",
+              border: "1px solid #CBD5E1",
+              fontSize: "15px",
+              color: theme.text.onLight,
+              boxSizing: "border-box",
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {/* Checkbox Consentimiento Marketing (PR-15: sin tildar por defecto) */}
+        <div
+          style={{
+            marginBottom: "24px",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "10px",
+          }}
+        >
+          <input
+            id="checkbox-marketing"
+            type="checkbox"
+            checked={consentimientoMarketing}
+            onChange={(e) => setConsentimientoMarketing(e.target.checked)}
+            style={{
+              marginTop: "3px",
+              width: "16px",
+              height: "16px",
+              accentColor: theme.colors.celesteBandera,
+              cursor: "pointer",
+            }}
+          />
+          <label
+            htmlFor="checkbox-marketing"
+            style={{
+              fontSize: "13px",
+              color: theme.text.secondary,
+              lineHeight: 1.4,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            Quiero recibir promos por WhatsApp
+          </label>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>

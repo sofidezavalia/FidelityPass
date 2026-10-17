@@ -7,5 +7,6 @@ const connectionString = process.env.DATABASE_URL;
 const client = neon(connectionString || "");
 export const db = drizzle(client, { schema });
 
+export * from "./codigo-corto";
 export * from "./schema";
 export { schema };

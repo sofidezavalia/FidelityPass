@@ -14,6 +14,7 @@ export async function GET() {
     const rows = await db
       .select({
         id: passes.id,
+        codigoCorto: passes.codigoCorto,
         clienteNombre: customers.nombre,
         estado: passes.estado,
         createdAt: passes.createdAt,
@@ -23,11 +24,18 @@ export async function GET() {
       .innerJoin(customers, eq(passes.customerId, customers.id))
       .leftJoin(pointsLedger, eq(pointsLedger.passId, passes.id))
       .where(eq(passes.merchantId, merchant.id))
-      .groupBy(passes.id, customers.nombre, passes.estado, passes.createdAt)
+      .groupBy(
+        passes.id,
+        passes.codigoCorto,
+        customers.nombre,
+        passes.estado,
+        passes.createdAt,
+      )
       .orderBy(desc(passes.createdAt));
 
     const payload = rows.map((r) => ({
       id: r.id,
+      codigoCorto: r.codigoCorto,
       clienteNombre: r.clienteNombre,
       estado: r.estado,
       sellos: Number(r.puntosTotal ?? 0),
@@ -42,6 +50,7 @@ export async function GET() {
   const rows = await db
     .select({
       id: passes.id,
+      codigoCorto: passes.codigoCorto,
       clienteNombre: customers.nombre,
       estado: passes.estado,
       createdAt: passes.createdAt,
@@ -51,11 +60,18 @@ export async function GET() {
     .innerJoin(customers, eq(passes.customerId, customers.id))
     .leftJoin(stamps, eq(stamps.passId, passes.id))
     .where(eq(passes.merchantId, merchant.id))
-    .groupBy(passes.id, customers.nombre, passes.estado, passes.createdAt)
+    .groupBy(
+      passes.id,
+      passes.codigoCorto,
+      customers.nombre,
+      passes.estado,
+      passes.createdAt,
+    )
     .orderBy(desc(passes.createdAt));
 
   const payload = rows.map((r) => ({
     id: r.id,
+    codigoCorto: r.codigoCorto,
     clienteNombre: r.clienteNombre,
     estado: r.estado,
     sellos: Number(r.sellosCount),

@@ -26,17 +26,27 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const serialNumber = searchParams.get("serialNumber");
+  const serialNumber = searchParams.get("serialNumber")?.trim();
+  const codigoCorto = searchParams.get("codigoCorto")?.trim();
 
-  if (!serialNumber) {
-    return NextResponse.json({ error: "Falta serialNumber" }, { status: 400 });
+  if (!serialNumber && !codigoCorto) {
+    return NextResponse.json(
+      { error: "Falta serialNumber o codigoCorto" },
+      { status: 400 },
+    );
   }
+
+  const queryCondition = codigoCorto
+    ? eq(passes.codigoCorto, codigoCorto.toUpperCase())
+    : eq(passes.serialNumber, serialNumber ?? "");
 
   const [row] = await db
     .select({
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
+      serialNumber: passes.serialNumber,
+      codigoCorto: passes.codigoCorto,
       clienteNombre: customers.nombre,
       modoAcumulacion: merchants.modoAcumulacion,
       montoMinimoSello: merchants.montoMinimoSello,
@@ -47,7 +57,7 @@ export async function GET(request: NextRequest) {
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
     .innerJoin(merchants, eq(passes.merchantId, merchants.id))
-    .where(eq(passes.serialNumber, serialNumber))
+    .where(queryCondition)
     .limit(1);
 
   if (!row) {
@@ -109,6 +119,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     passId: row.id,
+    serialNumber: row.serialNumber,
+    codigoCorto: row.codigoCorto,
     clienteNombre: row.clienteNombre,
     estado: row.estado,
     modoAcumulacion: row.modoAcumulacion,
@@ -161,15 +173,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { serialNumber, monto } = validation.data;
+  const { serialNumber, codigoCorto, monto } = validation.data;
 
-  // 1. Buscamos el pase por serialNumber con los datos del cliente y comercio
+  // 1. Buscamos el pase por codigoCorto o serialNumber con los datos del cliente y comercio
+  const queryCondition = codigoCorto
+    ? eq(passes.codigoCorto, codigoCorto.toUpperCase())
+    : eq(passes.serialNumber, serialNumber ?? "");
+
   const [row] = await db
     .select({
       id: passes.id,
       merchantId: passes.merchantId,
       estado: passes.estado,
       serialNumber: passes.serialNumber,
+      codigoCorto: passes.codigoCorto,
       googleWalletObjectId: passes.googleWalletObjectId,
       clienteNombre: customers.nombre,
       comercioNombre: merchants.nombre,
@@ -182,7 +199,7 @@ export async function POST(request: NextRequest) {
     .from(passes)
     .innerJoin(customers, eq(passes.customerId, customers.id))
     .innerJoin(merchants, eq(passes.merchantId, merchants.id))
-    .where(eq(passes.serialNumber, serialNumber))
+    .where(queryCondition)
     .limit(1);
 
   if (!row) {

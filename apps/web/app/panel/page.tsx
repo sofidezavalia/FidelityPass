@@ -53,6 +53,7 @@ interface ReglasResponse {
   montoMinimoSello: number | null;
   montoPorSello: number | null;
   puntosPorUnidad: number | null;
+  bonoBienvenida?: number;
   tieneMovimientos?: boolean;
 }
 
@@ -194,6 +195,7 @@ export default function PanelPage() {
   const [puntosPorUnidad, setPuntosPorUnidad] = useState<string>("");
   const [tieneMovimientos, setTieneMovimientos] = useState<boolean>(false);
   const [maxSellosPorDia, setMaxSellosPorDia] = useState<number>(1);
+  const [bonoBienvenida, setBonoBienvenida] = useState<number>(0);
   const [savingReglas, setSavingReglas] = useState(false);
   const [reglasError, setReglasError] = useState("");
   const [reglasSuccess, setReglasSuccess] = useState("");
@@ -216,6 +218,9 @@ export default function PanelPage() {
     if (reglasData) {
       if (typeof reglasData.maxSellosPorDia === "number") {
         setMaxSellosPorDia(reglasData.maxSellosPorDia);
+      }
+      if (typeof reglasData.bonoBienvenida === "number") {
+        setBonoBienvenida(reglasData.bonoBienvenida);
       }
       if (reglasData.modoAcumulacion) {
         setModoAcumulacion(reglasData.modoAcumulacion);
@@ -426,6 +431,7 @@ export default function PanelPage() {
       montoMinimoSello: montoMinimoSello ? Number(montoMinimoSello) : null,
       montoPorSello: montoPorSello ? Number(montoPorSello) : null,
       puntosPorUnidad: puntosPorUnidad ? Number(puntosPorUnidad) : null,
+      bonoBienvenida: Number(bonoBienvenida) || 0,
     };
 
     const validation = reglasSchema.safeParse(payload);
@@ -3260,6 +3266,55 @@ export default function PanelPage() {
               </div>
             )}
 
+            {/* Bono de bienvenida (PR-15) */}
+            <div style={{ maxWidth: "340px", marginBottom: "24px" }}>
+              <label
+                htmlFor="input-bono-bienvenida"
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: theme.text.onLight,
+                  marginBottom: "6px",
+                }}
+              >
+                {modoAcumulacion === "puntos_por_monto"
+                  ? "Puntos de bienvenida"
+                  : "Sellos de bienvenida"}
+              </label>
+              <input
+                id="input-bono-bienvenida"
+                type="number"
+                min={0}
+                max={1000}
+                value={bonoBienvenida}
+                onChange={(e) =>
+                  setBonoBienvenida(
+                    Math.max(0, parseInt(e.target.value, 10) || 0),
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #CBD5E1",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  color: theme.text.secondary,
+                  marginTop: "4px",
+                }}
+              >
+                Unidades de regalo al registrarse (0 = desactivado).
+              </span>
+            </div>
+
             <button
               type="submit"
               id="btn-guardar-reglas"
@@ -4720,6 +4775,7 @@ export default function PanelPage() {
                     }}
                   >
                     <th style={{ padding: "12px 16px" }}>Cliente</th>
+                    <th style={{ padding: "12px 16px" }}>Código</th>
                     <th style={{ padding: "12px 16px" }}>Estado</th>
                     <th style={{ padding: "12px 16px" }}>Sellos</th>
                     <th style={{ padding: "12px 16px" }}>Fecha de alta</th>
@@ -4741,6 +4797,21 @@ export default function PanelPage() {
                         }}
                       >
                         {pase.clienteNombre}
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <code
+                          style={{
+                            fontWeight: 700,
+                            letterSpacing: "0.05em",
+                            color: theme.text.onLight,
+                            backgroundColor: "#F1F5F9",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {pase.codigoCorto || "—"}
+                        </code>
                       </td>
                       <td style={{ padding: "12px 16px" }}>
                         <span

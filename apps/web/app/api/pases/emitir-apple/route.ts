@@ -3,15 +3,24 @@ import {
   applePassResultSchema,
   emitirPaseSchema,
 } from "@fidelitypass/contracts";
-import { customers, db, merchants, passes } from "@fidelitypass/db";
-import { eq } from "drizzle-orm";
+import {
+  customers,
+  db,
+  merchants,
+  passes,
+  pointsLedger,
+  stamps,
+} from "@fidelitypass/db";
+import { and, eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { env } from "../../../../lib/env";
+import { generateUniqueCodigoCorto } from "../../../../lib/passes";
 import { isAppleWalletConfigured } from "../../../../lib/wallet/apple";
 
 /**
  * POST /api/pases/emitir-apple (público)
- * Emite una tarjeta de fidelidad digital para Apple Wallet (.pkpass)
+ * Emite una tarjeta de fidelidad digital para Apple Wallet (.pkpass) con teléfono,
+ * consentimiento de marketing, código corto de 6 caracteres y bono de bienvenida.
  */
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -33,7 +42,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { merchantId, nombreCliente } = validation.data;
+  const {
+    merchantId,
+    nombreCliente,
+    email,
+    telefono,
+    consentimientoMarketing,
+  } = validation.data;
 
   // 2. Patrón "integración dormida": si las 4 variables de Apple no están presentes, 503 sin tocar la DB
   if (!isAppleWalletConfigured()) {
@@ -51,6 +66,8 @@ export async function POST(request: NextRequest) {
       logoUrl: merchants.logoUrl,
       colorPrimario: merchants.colorPrimario,
       colorSecundario: merchants.colorSecundario,
+      bonoBienvenida: merchants.bonoBienvenida,
+      modoAcumulacion: merchants.modoAcumulacion,
     })
     .from(merchants)
     .where(eq(merchants.id, merchantId))
@@ -60,15 +77,61 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Comercio inválido" }, { status: 400 });
   }
 
-  // TODO (Producción): Agregar rate limiting por IP para prevenir abuso en este endpoint público.
+  const cleanEmail = email?.trim() ? email.toLowerCase().trim() : null;
+  const cleanPhone = telefono?.trim() || null;
+  const isMarketing = Boolean(consentimientoMarketing);
 
-  // 4. Crear cliente en la DB
+  // 4. Flujo de deduplicación por email
+  if (cleanEmail) {
+    const [existingCustomer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.email, cleanEmail))
+      .limit(1);
+
+    if (existingCustomer) {
+      const [existingPass] = await db
+        .select()
+        .from(passes)
+        .where(
+          and(
+            eq(passes.merchantId, merchant.id),
+            eq(passes.customerId, existingCustomer.id),
+          ),
+        )
+        .limit(1);
+
+      if (existingPass) {
+        await db
+          .update(customers)
+          .set({
+            telefono: cleanPhone || existingCustomer.telefono,
+            consentimientoMarketing:
+              isMarketing || existingCustomer.consentimientoMarketing,
+            marketingConsentAt: isMarketing
+              ? new Date()
+              : existingCustomer.marketingConsentAt,
+          })
+          .where(eq(customers.id, existingCustomer.id));
+
+        const downloadUrl = `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/api/pases/apple/${existingPass.serialNumber}/download`;
+        const responsePayload = applePassResultSchema.parse({ downloadUrl });
+        return NextResponse.json(responsePayload, { status: 200 });
+      }
+    }
+  }
+
+  // 5. Crear cliente nuevo
   const [customer] = await db
     .insert(customers)
     .values({
-      nombre: nombreCliente,
+      nombre: nombreCliente.trim(),
+      email: cleanEmail,
+      telefono: cleanPhone,
+      consentimientoMarketing: isMarketing,
+      marketingConsentAt: isMarketing ? new Date() : null,
     })
-    .returning({ id: customers.id, nombre: customers.nombre });
+    .returning();
 
   if (!customer) {
     return NextResponse.json(
@@ -77,21 +140,46 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 5. Generar serialNumber (compartido con escáner) y appleAuthToken para el webService de Apple
+  // 6. Generar serialNumber, appleAuthToken y código corto único
   const serialNumber = crypto.randomUUID();
   const appleAuthToken = crypto.randomBytes(16).toString("hex");
+  const codigoCorto = await generateUniqueCodigoCorto();
+  const bono = merchant.bonoBienvenida ?? 0;
 
-  // 6. Guardar pase en la DB
-  await db.insert(passes).values({
-    merchantId: merchant.id,
-    customerId: customer.id,
-    serialNumber,
-    appleAuthToken,
-    estado: "activa",
-  });
+  // 7. Guardar pase en la DB
+  const [newPass] = await db
+    .insert(passes)
+    .values({
+      merchantId: merchant.id,
+      customerId: customer.id,
+      serialNumber,
+      codigoCorto,
+      appleAuthToken,
+      estado: "activa",
+    })
+    .returning();
+
+  // 8. Acreditar bono de bienvenida si aplica
+  if (bono > 0 && newPass) {
+    if (merchant.modoAcumulacion === "puntos_por_monto") {
+      await db.insert(pointsLedger).values({
+        passId: newPass.id,
+        merchantId: merchant.id,
+        staffId: null,
+        puntos: bono,
+        montoCompra: null,
+      });
+    } else {
+      const stampEntries = Array.from({ length: bono }, () => ({
+        passId: newPass.id,
+        merchantId: merchant.id,
+        staffId: null,
+      }));
+      await db.insert(stamps).values(stampEntries);
+    }
+  }
 
   const downloadUrl = `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/api/pases/apple/${serialNumber}/download`;
-
   const responsePayload = applePassResultSchema.parse({ downloadUrl });
   return NextResponse.json(responsePayload, { status: 201 });
 }

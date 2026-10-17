@@ -8,6 +8,7 @@ export const dashboardResumenSchema = z.object({
 
 export const paseListItemSchema = z.object({
   id: z.string().uuid(),
+  codigoCorto: z.string().optional(),
   clienteNombre: z.string(),
   estado: z.enum(["activa", "inactiva"]),
   sellos: z.number().int().nonnegative(),
